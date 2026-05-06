@@ -73,6 +73,48 @@ function Write-ClawdFocusResult([string]$reason) {
 }
 `;
 
+// One-time UIA setup for Windows Terminal multi-tab focus.
+// Loaded once into the persistent PS helper. WT exposes its tab strip via
+// UIAutomation TabItem peers; SelectionItemPattern.Select() rotates to the
+// matched tab. ClassName check short-circuits non-WT windows (Cursor/VSCode).
+const PS_UIA_INIT = `
+try {
+  Add-Type -AssemblyName UIAutomationClient -ErrorAction Stop
+  Add-Type -AssemblyName UIAutomationTypes -ErrorAction Stop
+  $script:WtUiaAvailable = $true
+} catch {
+  $script:WtUiaAvailable = $false
+}
+
+function Select-WtTabByCwd {
+  param([IntPtr]$hwnd, [string[]]$cwdNames)
+  if (-not $script:WtUiaAvailable) { return $false }
+  if ($hwnd -eq [IntPtr]::Zero) { return $false }
+  if (-not $cwdNames -or $cwdNames.Count -eq 0) { return $false }
+  try {
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+    if (-not $root) { return $false }
+    if ($root.Current.ClassName -ne 'CASCADIA_HOSTING_WINDOW_CLASS') { return $false }
+    $cond = New-Object System.Windows.Automation.PropertyCondition(
+      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+      [System.Windows.Automation.ControlType]::TabItem)
+    $tabs = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $cond)
+    foreach ($tab in $tabs) {
+      $title = $tab.Current.Name
+      if (-not $title) { continue }
+      foreach ($name in $cwdNames) {
+        if ($title -like "*$name*") {
+          $pat = $tab.GetCurrentPattern(
+            [System.Windows.Automation.SelectionItemPattern]::Pattern)
+          if ($pat) { $pat.Select(); return $true }
+        }
+      }
+    }
+  } catch {}
+  return $false
+}
+`;
+
 function makeFocusCmd(sourcePid, cwdCandidates) {
   // Walk up the process tree (same proven logic as before).
   // Windows Terminal needs title matching because one WT process can represent
@@ -86,17 +128,28 @@ function makeFocusCmd(sourcePid, cwdCandidates) {
       }).join(",")
     : "";
   const titleNames = psNames ? `@(${psNames})` : "@()";
+  // WT branch: try UIA tab selection first (sees all tabs, can rotate the
+  // active one). On miss, fall back to upstream's GetWindowText logic which
+  // refuses ambiguous matches. UIA only fires when the window is WT
+  // (ClassName guard inside Select-WtTabByCwd), so non-WT windows are
+  // unaffected.
   const parentWindowBlock = psNames ? `
         if (@('WindowsTerminal', 'WindowsTerminalPreview') -contains $proc.ProcessName) {
-            $matches = @([WinFocus]::FindByPidTitles([uint32]$curPid, [string[]]$titleNames))
-            if ($matches.Count -eq 1) {
-                [WinFocus]::Focus($matches[0])
+            if (Select-WtTabByCwd $proc.MainWindowHandle ([string[]]$titleNames)) {
+                [WinFocus]::Focus($proc.MainWindowHandle)
                 $focused = $true
-                $reason = 'wt-parent-title-match'
-            } elseif ($matches.Count -gt 1) {
-                $reason = 'wt-parent-title-ambiguous'
+                $reason = 'wt-uia-parent-tab-selected'
             } else {
-                $reason = 'wt-parent-title-mismatch'
+                $matches = @([WinFocus]::FindByPidTitles([uint32]$curPid, [string[]]$titleNames))
+                if ($matches.Count -eq 1) {
+                    [WinFocus]::Focus($matches[0])
+                    $focused = $true
+                    $reason = 'wt-parent-title-match'
+                } elseif ($matches.Count -gt 1) {
+                    $reason = 'wt-parent-title-ambiguous'
+                } else {
+                    $reason = 'wt-parent-title-mismatch'
+                }
             }
         } else {
             [WinFocus]::Focus($proc.MainWindowHandle)
@@ -114,26 +167,39 @@ function makeFocusCmd(sourcePid, cwdCandidates) {
         break`;
   const wtTitleMatch = psNames ? `
     $wtProcs = Get-Process -Name 'WindowsTerminal' -ErrorAction SilentlyContinue
-    $wtMatches = @()
+    $uiaSelected = $false
     foreach ($wt in $wtProcs) {
         if ($wt.MainWindowHandle -eq 0) { continue }
-        $matches = @([WinFocus]::FindByPidTitles([uint32]$wt.Id, [string[]]$titleNames))
-        foreach ($hwnd in $matches) {
-            $exists = $false
-            foreach ($existing in $wtMatches) {
-                if ($existing -eq $hwnd) { $exists = $true; break }
-            }
-            if (-not $exists) { $wtMatches += $hwnd }
+        if (Select-WtTabByCwd $wt.MainWindowHandle ([string[]]$titleNames)) {
+            [WinFocus]::Focus($wt.MainWindowHandle)
+            $focused = $true
+            $uiaSelected = $true
+            $reason = 'wt-uia-tab-selected'
+            break
         }
     }
-    if ($wtMatches.Count -eq 1) {
-        [WinFocus]::Focus($wtMatches[0])
-        $focused = $true
-        $reason = 'wt-title-match'
-    } elseif ($wtMatches.Count -gt 1) {
-        $reason = 'wt-title-ambiguous'
-    } else {
-        $reason = 'wt-title-mismatch'
+    if (-not $uiaSelected) {
+        $wtMatches = @()
+        foreach ($wt in $wtProcs) {
+            if ($wt.MainWindowHandle -eq 0) { continue }
+            $matches = @([WinFocus]::FindByPidTitles([uint32]$wt.Id, [string[]]$titleNames))
+            foreach ($hwnd in $matches) {
+                $exists = $false
+                foreach ($existing in $wtMatches) {
+                    if ($existing -eq $hwnd) { $exists = $true; break }
+                }
+                if (-not $exists) { $wtMatches += $hwnd }
+            }
+        }
+        if ($wtMatches.Count -eq 1) {
+            [WinFocus]::Focus($wtMatches[0])
+            $focused = $true
+            $reason = 'wt-title-match'
+        } elseif ($wtMatches.Count -gt 1) {
+            $reason = 'wt-title-ambiguous'
+        } else {
+            $reason = 'wt-title-mismatch'
+        }
     }` : `
     $reason = 'no-parent-window-no-title'`;
 
@@ -182,6 +248,18 @@ function normalizePidChain(value) {
   return out.length ? out : null;
 }
 
+function normalizeExtraNames(value) {
+  if (!Array.isArray(value)) return null;
+  const out = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const trimmed = item.trim();
+    if (!trimmed || out.includes(trimmed)) continue;
+    out.push(trimmed);
+  }
+  return out.length ? out : null;
+}
+
 function normalizeFocusRequest(sourcePidOrRequest, cwd, editor, pidChain, meta = {}) {
   if (sourcePidOrRequest && typeof sourcePidOrRequest === "object" && !Array.isArray(sourcePidOrRequest)) {
     const request = sourcePidOrRequest;
@@ -190,6 +268,7 @@ function normalizeFocusRequest(sourcePidOrRequest, cwd, editor, pidChain, meta =
       cwd: typeof request.cwd === "string" ? request.cwd : "",
       editor: request.editor === "code" || request.editor === "cursor" ? request.editor : null,
       pidChain: normalizePidChain(request.pidChain ?? request.pid_chain),
+      extraNames: normalizeExtraNames(request.extraNames),
       sessionId: typeof request.sessionId === "string" ? request.sessionId : null,
       agentId: typeof request.agentId === "string" ? request.agentId : null,
       requestSource: typeof request.requestSource === "string" ? request.requestSource : null,
@@ -201,6 +280,7 @@ function normalizeFocusRequest(sourcePidOrRequest, cwd, editor, pidChain, meta =
     cwd: typeof cwd === "string" ? cwd : "",
     editor: editor === "code" || editor === "cursor" ? editor : null,
     pidChain: normalizePidChain(pidChain),
+    extraNames: meta && Array.isArray(meta.extraNames) ? normalizeExtraNames(meta.extraNames) : null,
     sessionId: meta && typeof meta.sessionId === "string" ? meta.sessionId : null,
     agentId: meta && typeof meta.agentId === "string" ? meta.agentId : null,
     requestSource: meta && typeof meta.requestSource === "string" ? meta.requestSource : null,
@@ -285,6 +365,7 @@ function initFocusHelper() {
   }
   psProc.stdin.write("[Console]::InputEncoding = [System.Text.Encoding]::UTF8\n");
   psProc.stdin.write(PS_FOCUS_ADDTYPE + "\n");
+  psProc.stdin.write(PS_UIA_INIT + "\n");
   psProc.on("exit", () => { psProc = null; psStdoutBuffer = ""; });
   psProc.unref(); // Don't keep the app alive for this
 }
@@ -474,6 +555,7 @@ function focusTerminalWindowLegacy(request, onDone) {
   const { sourcePid } = request;
   const cwd = request.cwd;
   const pidChain = request.pidChain;
+  const extraNames = request.extraNames;
 
   if (!sourcePid) {
     if (onDone) onDone();
@@ -536,16 +618,27 @@ function focusTerminalWindowLegacy(request, onDone) {
     return true;
   }
 
-  // Build candidate folder names from cwd for title matching (deepest first).
-  // e.g. "C:\Users\X\GPT_Test\redbook" → ['redbook', 'GPT_Test']
-  // Cursor window title typically shows workspace root, which may not be the deepest folder.
+  // Build candidate names for title matching.
+  // 1. extraNames first (session alias / sessionTitle from /rename) — Claude
+  //    Code pushes these into the WT tab title via OSC, so they're the most
+  //    reliable when the user has renamed a session away from the cwd basename.
+  // 2. Deepest 3 segments of cwd.
   const cwdCandidates = [];
+  const pushCandidate = (name) => {
+    if (typeof name !== "string") return;
+    const trimmed = name.trim();
+    if (!trimmed || cwdCandidates.includes(trimmed)) return;
+    cwdCandidates.push(trimmed);
+  };
+  if (Array.isArray(extraNames)) {
+    for (const n of extraNames) pushCandidate(n);
+  }
   if (cwd) {
     let dir = cwd;
     for (let i = 0; i < 3; i++) {
       const name = path.basename(dir);
       if (!name || name === dir || /^[A-Z]:$/i.test(name)) break;
-      cwdCandidates.push(name);
+      pushCandidate(name);
       dir = path.dirname(dir);
     }
   }
@@ -559,7 +652,7 @@ function focusTerminalWindowLegacy(request, onDone) {
     // Fallback: one-shot PowerShell if persistent process died
     psProc = null;
     execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
-      PS_FOCUS_ADDTYPE + cmd],
+      PS_FOCUS_ADDTYPE + PS_UIA_INIT + cmd],
       { windowsHide: true, timeout: 5000, encoding: "utf8" },
       (err, stdout) => {
         if (err) console.warn("focusTerminal failed:", err.message);
@@ -591,6 +684,7 @@ return {
     summarizeCwd,
     handleFocusHelperCompleteOutput,
     PS_FOCUS_ADDTYPE,
+    PS_UIA_INIT,
   },
 };
 

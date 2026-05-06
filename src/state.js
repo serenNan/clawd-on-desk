@@ -848,6 +848,21 @@ function getEffectiveSessionTitle(id, sessionLike) {
   return normalizeTitle(sessionLike && sessionLike.sessionTitle);
 }
 
+// Names worth substring-matching against terminal tab titles (alias, title).
+// Claude Code emits OSC tab titles from /rename; this lets focus.js find the
+// right WT tab when the cwd basename no longer matches the visible label.
+function getSessionFocusNames(id) {
+  const session = sessions.get(String(id));
+  if (!session) return [];
+  const aliases = getSessionAliases();
+  const out = [];
+  const alias = getSessionAliasEntry(String(id), session, aliases);
+  if (alias && typeof alias.title === "string" && alias.title) out.push(alias.title);
+  const title = getEffectiveSessionTitle(String(id), session);
+  if (title && !out.includes(title)) out.push(title);
+  return out;
+}
+
 function sessionMenuComparator(a, b) {
   const pa = STATE_PRIORITY[a.state] || 0;
   const pb = STATE_PRIORITY[b.state] || 0;
@@ -1785,7 +1800,7 @@ return {
   enableDoNotDisturb, disableDoNotDisturb,
   startStaleCleanup, stopStaleCleanup, startWakePoll, stopWakePoll,
   getSvgOverride, cleanStaleSessions, startStartupRecovery, refreshTheme,
-  detectRunningAgentProcesses, buildSessionSnapshot,
+  detectRunningAgentProcesses, buildSessionSnapshot, getSessionFocusNames,
   emitSessionSnapshot, broadcastSessionSnapshot, getLastSessionSnapshot,
   getActiveSessionAliasKeys,
   dismissSession,

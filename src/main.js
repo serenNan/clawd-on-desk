@@ -1415,11 +1415,15 @@ const _permCtx = {
   focusTerminalForSession: (sessionId, options = {}) => {
     const s = sessions.get(sessionId);
     if (s && s.sourcePid) {
+      const extraNames = typeof _state.getSessionFocusNames === "function"
+        ? _state.getSessionFocusNames(sessionId)
+        : null;
       focusTerminalWindow({
         sourcePid: s.sourcePid,
         cwd: s.cwd,
         editor: s.editor,
         pidChain: s.pidChain,
+        extraNames,
         sessionId: String(sessionId),
         agentId: s.agentId,
         requestSource: options.requestSource || "permission-bubble",
@@ -1711,11 +1715,15 @@ function focusDashboardSession(sessionId, options = {}) {
   const requestSource = options.requestSource || "dashboard";
   const session = sessions.get(String(sessionId));
   if (session && session.sourcePid) {
+    const extraNames = typeof _state.getSessionFocusNames === "function"
+      ? _state.getSessionFocusNames(sessionId)
+      : null;
     focusTerminalWindow({
       sourcePid: session.sourcePid,
       cwd: session.cwd,
       editor: session.editor,
       pidChain: session.pidChain,
+      extraNames,
       sessionId: String(sessionId),
       agentId: session.agentId,
       requestSource,
