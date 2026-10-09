@@ -68,6 +68,7 @@ function registerPetInteractionIpc(options = {}) {
   const showDashboard = requiredDependency(options.showDashboard, "showDashboard");
   const focusSession = requiredDependency(options.focusSession, "focusSession");
   const revealSessionHud = requiredDependency(options.revealSessionHud, "revealSessionHud");
+  const toggleVoice = options.toggleVoice || (() => {});
   const setLowPowerIdlePaused = requiredDependency(
     options.setLowPowerIdlePaused,
     "setLowPowerIdlePaused"
@@ -178,6 +179,10 @@ function registerPetInteractionIpc(options = {}) {
 
   on("pet-interaction:reveal-session-hud", () => {
     revealSessionHud();
+  });
+
+  on("pet-interaction:toggle-voice", () => {
+    toggleVoice();
   });
 
   // OS file drop from the hit window (#459, Windows/Linux only): first path

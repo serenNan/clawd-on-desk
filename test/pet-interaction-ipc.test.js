@@ -100,6 +100,7 @@ function createHarness(overrides = {}) {
     focusSession: (sessionId, options) => calls.push(["focusSession", sessionId, options]),
     setLowPowerIdlePaused: (value) => calls.push(["setLowPowerIdlePaused", value]),
     revealSessionHud: () => calls.push(["revealSessionHud"]),
+    toggleVoice: () => calls.push(["toggleVoice"]),
     statPath: async (p) => {
       calls.push(["statPath", p]);
       if (state.statDirs.has(p)) return { isDirectory: () => true };
@@ -156,6 +157,7 @@ test("pet interaction IPC registers owned channels and disposes them", () => {
     "pause-cursor-polling",
     "pet-drop-paths",
     "pet-interaction:reveal-session-hud",
+    "pet-interaction:toggle-voice",
     "pet-visual-ready",
     "pet-visual-settled",
     "play-click-reaction",
@@ -219,6 +221,12 @@ test("pet interaction IPC delegates pet-interaction:reveal-session-hud to reveal
   assert.deepStrictEqual(calls.filter((c) => c[0] === "revealSessionHud"), [
     ["revealSessionHud"],
   ]);
+});
+
+test("pet interaction IPC delegates pet-interaction:toggle-voice to toggleVoice", () => {
+  const { ipcMain, calls } = createHarness();
+  ipcMain.send("pet-interaction:toggle-voice");
+  assert.deepStrictEqual(calls.filter((c) => c[0] === "toggleVoice"), [["toggleVoice"]]);
 });
 
 test("pet interaction IPC delegates menu, drag move, reaction pause, and renderer relays", () => {

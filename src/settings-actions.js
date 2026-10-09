@@ -178,6 +178,7 @@ const {
 const {
   validateSlackNotify,
 } = require("./slack-notify-settings");
+const { validateVoice } = require("./voice-settings");
 const { classifyFeishuApprovalRecipient } = require("./feishu-approval-recipient");
 const { EVENTS: TELEGRAM_MIGRATION_EVENTS } = require("./telegram-migration-state");
 
@@ -781,6 +782,9 @@ const updateRegistry = {
   },
   slackNotify(value) {
     return validateSlackNotify(value);
+  },
+  voice(value) {
+    return validateVoice(value);
   },
 
   // v0.9.0 spike: persisted migration state across restarts. Shape:

@@ -9,6 +9,7 @@ const DEFAULT_LOG_BASENAMES = Object.freeze([
   "session-debug.log",
   "focus-debug.log",
   "update-debug.log",
+  "voice-debug.log",
   "gemini-debug.log",
   "opencode-plugin.log",
   "opencode-plugin-v2.log",

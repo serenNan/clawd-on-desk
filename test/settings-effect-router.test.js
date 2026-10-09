@@ -119,6 +119,21 @@ describe("settings-effect-router", () => {
     ]);
   });
 
+  it("forwards voice preference changes to the voice controller and refreshes menus", () => {
+    const { calls, emit } = createHarness({
+      routerOptions: { onVoiceChanged: (voice) => calls.push(["onVoiceChanged", voice]) },
+    });
+    const voice = { enabled: false };
+
+    emit({ voice });
+
+    assert.deepStrictEqual(calls, [
+      ["updateMirrors", { voice }],
+      ["onVoiceChanged", voice],
+      ["rebuildAllMenus"],
+    ]);
+  });
+
   it("destroys the tray when showTray is committed false", () => {
     const { calls, emit } = createHarness();
 

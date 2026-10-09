@@ -35,6 +35,7 @@ const MENU_AFFECTING_KEYS = new Set([
   "size",
   "sessionAliases",
   "disableMiniMode",
+  "voice",
 ]);
 
 const BUBBLE_PLACEMENT_KEYS = new Set([
@@ -103,6 +104,7 @@ function createSettingsEffectRouter(options = {}) {
   const rebuildAllMenus = options.rebuildAllMenus || noop;
   const reconcilePowerSaveBlocker = options.reconcilePowerSaveBlocker || noop;
   const setRecapEnabled = options.setRecapEnabled || noop;
+  const onVoiceChanged = options.onVoiceChanged || noop;
   const now = options.now || (() => new Date());
 
   setPetAccessoryFloatingSurfaceRepositioner(repositionFloatingBubbles);
@@ -165,6 +167,9 @@ function createSettingsEffectRouter(options = {}) {
     }
     if ("showDock" in changes) {
       safeCall(logWarn, "Clawd: applyDockVisibility failed:", applyDockVisibility);
+    }
+    if ("voice" in changes) {
+      safeCall(logWarn, "Clawd: voice settings change failed:", onVoiceChanged, changes.voice);
     }
     if ("lowPowerIdleMode" in changes) {
       sendToRenderer("low-power-idle-mode-change", changes.lowPowerIdleMode);

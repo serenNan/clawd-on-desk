@@ -43,6 +43,10 @@ function buildStateBindings(nextTheme) {
   if (!bindings.roam) {
     bindings.roam = { files: [], fallbackTo: "idle" };
   }
+  // Optional voice states: themes without dedicated art reuse idle/working.
+  if (!bindings.listening) bindings.listening = { files: [], fallbackTo: "idle" };
+  if (!bindings.paused) bindings.paused = { files: [], fallbackTo: "sleeping" };
+  if (!bindings.speaking) bindings.speaking = { files: [], fallbackTo: "working" };
   if (nextTheme && nextTheme.states && !Array.isArray(nextTheme.states.roam)) {
     const idleDefault = (nextTheme.states.idle && Array.isArray(nextTheme.states.idle)
       && nextTheme.states.idle.length > 0)

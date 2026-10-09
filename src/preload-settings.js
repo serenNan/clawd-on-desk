@@ -130,6 +130,7 @@ contextBridge.exposeInMainWorld("settingsAPI", {
   // shipped), so the presence enable switch can be ready without a user-saved App ID.
   discordDefaultAppIdPresent,
   getSnapshot: () => ipcRenderer.invoke("settings:get-snapshot"),
+  getVoiceModelsStatus: () => ipcRenderer.invoke("voice:models-status"),
   queryRecap: (period) => ipcRenderer.invoke("settings:recap-query", period),
   clearRecap: () => ipcRenderer.invoke("settings:recap-clear"),
   consumeRequestedTab: () => {

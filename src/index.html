@@ -27,12 +27,25 @@
       <div id="pet-effect-stage">
         <div id="pet-particle-layer"></div>
       </div>
+      <div id="voice-indicator" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="100%" height="100%" focusable="false">
+          <rect x="9" y="3" width="6" height="12" rx="3" fill="currentColor"></rect>
+          <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+          <path class="voice-slash" d="M4 4l16 16" stroke="#fff" stroke-width="4.6" stroke-linecap="round"></path>
+          <path class="voice-slash" d="M4 4l16 16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"></path>
+        </svg>
+      </div>
     </div>
   </div>
   <script src="pet-accessory-layout.js"></script>
   <script src="pet-accessory-mirror.js"></script>
   <script src="pet-accessory-descriptor.js"></script>
   <script src="pet-visual-swap-policy.js"></script>
+  <script src="voice-vad.js"></script>
+  <script src="voice-barge-in.js"></script>
+  <script src="voice-audio-renderer.js"></script>
+  <script src="voice-renderer.js"></script>
+  <script src="voice-renderer-boot.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

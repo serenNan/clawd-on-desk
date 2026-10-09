@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Notification, screen, ipcMain, globalShortcut, nativeTheme, dialog, shell, nativeImage, powerSaveBlocker, powerMonitor, clipboard, safeStorage, net } = require("electron");
+const { app, BrowserWindow, Notification, screen, ipcMain, globalShortcut, nativeTheme, dialog, shell, nativeImage, powerSaveBlocker, powerMonitor, clipboard, safeStorage, net, systemPreferences, session: electronSession } = require("electron");
 const { maybeRunPackageKoffiSmoke } = require("./package-koffi-smoke");
 if (maybeRunPackageKoffiSmoke({ app, BrowserWindow })) {
   return;
@@ -93,6 +93,8 @@ const { registerQuotaNotificationIpc } = require("./quota-notification-ipc");
 const { createQuotaAlertsRuntime } = require("./quota-alerts-runtime");
 const { createQuotaNotificationPresenter } = require("./quota-notifications");
 const createSettingsEffectRouter = require("./settings-effect-router");
+const { createVoiceMain } = require("./voice-main");
+const { createVoiceFeedback } = require("./voice-feedback");
 const { createRecapRuntime } = require("./recap-runtime");
 const { createKimiQuotaClient } = require("./kimi-quota-client");
 const { createKimiQuotaCredentialStore } = require("./kimi-quota-credential-store");
@@ -498,6 +500,8 @@ let slackNotifyClient = null;
 const shortcutHandlers = {
   togglePet: () => togglePetVisibility(),
   quickSelectSession: () => showQuickSelect(),
+  // No call: start one. Live call: pause / resume the mic instead of ending it.
+  toggleVoice: () => { void getVoiceMain().shortcutToggle(); },
 };
 const _settingsController = createSettingsController({
   prefsPath: PREFS_PATH,
@@ -1487,7 +1491,9 @@ function prepManualPetVisibility() {
 }
 function togglePetVisibility() {
   prepManualPetVisibility();
-  return petWindowRuntime.togglePetVisibility();
+  const result = petWindowRuntime.togglePetVisibility();
+  if (petWindowRuntime.isPetHidden()) endVoiceFor("hide");
+  return result;
 }
 // Explicit-direction variant for the menus: the Show/Hide Pet items apply the
 // intent their label carried when the menu was built, so a state change that
@@ -1495,7 +1501,9 @@ function togglePetVisibility() {
 // action (see menu.js).
 function setPetVisibility(visible) {
   prepManualPetVisibility();
-  return petWindowRuntime.setPetHidden(!visible);
+  const result = petWindowRuntime.setPetHidden(!visible);
+  if (!visible) endVoiceFor("hide");
+  return result;
 }
 function bringPetToPrimaryDisplay() {
   prepManualPetVisibility();
@@ -2512,7 +2520,7 @@ _settingsController.subscribeKey("agents", (_agents, snapshot) => {
   }
 });
 const { setState, applyState, updateSession, resolveDisplayState, getSvgOverride,
-        enableDoNotDisturb, disableDoNotDisturb: disableDoNotDisturbState,
+        enableDoNotDisturb: enableDoNotDisturbState, disableDoNotDisturb: disableDoNotDisturbState,
         startStaleCleanup, stopStaleCleanup,
         startWakePoll, stopWakePoll, detectRunningAgentProcesses,
         startStartupRecovery: _startStartupRecovery } = _state;
@@ -2522,6 +2530,65 @@ function disableDoNotDisturb() {
   const result = disableDoNotDisturbState();
   quotaAlertsRuntime?.observeQuota();
   return result;
+}
+
+function enableDoNotDisturb() {
+  endVoiceFor("dnd");
+  return enableDoNotDisturbState();
+}
+
+// ── Realtime voice (default off; see openspec/changes/add-realtime-voice) ──
+// main.js only composes: voice-main.js owns the runtime, IPC and providers.
+let voiceMain = null;
+function getVoiceMain() {
+  if (voiceMain) return voiceMain;
+  const feedback = createVoiceFeedback({ Notification, dialog, shell, t: (key) => translate(key) });
+  voiceMain = createVoiceMain({
+    ipcMain,
+    getPetWebContents: () => (
+      win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed() ? win.webContents : null
+    ),
+    debugLog: require("./voice-debug-log").createVoiceDebugLog({ filePath: path.join(app.getPath("userData"), "voice-debug.log") }),
+    getVoice: () => _settingsController.get("voice"),
+    applyVoiceUpdate: (next) => _settingsController.applyUpdate("voice", next),
+    systemPreferences,
+    isMiniTransitioning: () => _mini.getMiniTransitioning(),
+    setVoiceOverlay: (name) => _state.setVoiceOverlay(name),
+    playCue: require("./voice-cue").createVoiceCue({
+      send: (channel, payload) => sendToRenderer(channel, payload),
+      getCueEnabled: () => (_settingsController.get("voice") || {}).cueEnabled !== false,
+      getSoundVolume: () => soundVolume,
+      soundsDir: path.join(__dirname, "..", "assets", "sounds"),
+    }),
+    notify: feedback.notify,
+    confirmCloudConsent: feedback.confirmCloudConsent,
+    factories: {
+      createLocalStt: (o) => require("./voice-stt-local").createLocalStt(o),
+      createLocalTts: (o) => require("./voice-tts-local").createLocalTts(o),
+      createEdgeTts: (o) => require("./voice-tts-edge").createEdgeTts(o),
+      createAliyunStt: (o) => require("./voice-stt-aliyun").createAliyunStt(o),
+      createAliyunTts: (o) => require("./voice-tts-aliyun").createAliyunTts(o),
+      createClaudeBrain: (o) => require("./voice-brain-claude").createClaudeBrain(o),
+      sherpaStatus: () => {
+        const models = require("./voice-models");
+        const dir = models.getModelsDir(app.getPath("userData"));
+        return { ...models.checkModelsReady(dir), dir };
+      },
+      createSherpa: (o) => require("./voice-sherpa-native").createSherpaStack({
+        modelsDir: require("./voice-models").getModelsDir(app.getPath("userData")), log: o && o.log, endSilenceMs: o && o.endSilenceMs,
+      }),
+    },
+  });
+  return voiceMain;
+}
+function endVoiceFor(reason) {
+  if (voiceMain) voiceMain.onLifecycle(reason);
+}
+function installVoicePermissionHandlers() {
+  const voice = getVoiceMain();
+  const ses = electronSession.defaultSession;
+  ses.setPermissionCheckHandler((wc, permission, _origin, details) => voice.permissionPolicy.check(wc, permission, details));
+  ses.setPermissionRequestHandler((wc, permission, callback, details) => voice.permissionPolicy.request(wc, permission, callback, details));
 }
 
 function showQuotaAlert(event) {
@@ -2998,6 +3065,12 @@ const _serverCtx = {
   captureForegroundWindowsTerminal: _captureForegroundWindowsTerminal,
   debugLog: (msg) => sessionLog(msg),
   recordWindowsProcessChainShadow: (record) => recordWindowsProcessChainShadow(record),
+  // Claude Code session voice mode (/voice/*): voice-main is created lazily.
+  voiceSession: {
+    sessionStart: () => getVoiceMain().sessionStart(),
+    sessionStop: () => getVoiceMain().sessionStop(),
+    converse: (opts) => getVoiceMain().converse(opts),
+  },
   isAgentEnabled: (agentId) => _runtimeAgentGate.isAgentEnabled(agentId),
   shouldSyncAgentIntegration: (agentId) =>
     _runtimeAgentGate.shouldSyncAgentIntegration(agentId),
@@ -4514,6 +4587,13 @@ const _menuCtx = {
   set contextMenu(v) { contextMenu = v; },
   enableDoNotDisturb: () => enableDoNotDisturb(),
   disableDoNotDisturb: () => disableDoNotDisturb(),
+  getVoiceMenuState: () => ({
+    enabled: !!(_settingsController.get("voice") || {}).enabled,
+    active: !!(voiceMain && voiceMain.getState().active),
+    paused: !!(voiceMain && voiceMain.getState().paused),
+  }),
+  toggleVoice: () => { void getVoiceMain().toggle(); },
+  toggleVoicePause: () => { void getVoiceMain().togglePause(); },
   enterMiniViaMenu: () => {
     if (!disableMiniModeCached) enterMiniViaMenu();
   },
@@ -4742,6 +4822,7 @@ const settingsEffectRouter = createSettingsEffectRouter({
   rebuildAllMenus,
   reconcilePowerSaveBlocker,
   setRecapEnabled: (enabled) => recapRuntime.setEnabled(enabled),
+  onVoiceChanged: (voice) => { if (voiceMain) voiceMain.onSettingsChanged(voice); },
   logWarn: console.warn,
 });
 settingsEffectRouter.start();
@@ -5221,6 +5302,14 @@ function createWindow() {
     applyDockVisibility,
   });
   finalizePetAccessorySlotsDelivery(initialAccessoryDelivery, true);
+  if (win && win.webContents) {
+    // The voice call lives in this renderer: any teardown/reload must end it.
+    win.webContents.on("render-process-gone", () => endVoiceFor("renderer-gone"));
+    win.webContents.on("destroyed", () => endVoiceFor("renderer-gone"));
+    win.webContents.on("did-start-navigation", (event) => {
+      if (event && event.isMainFrame && !event.isSameDocument) endVoiceFor("renderer-reload");
+    });
+  }
 
   buildContextMenu();
   if (!isMac || showTray) createTray();
@@ -5326,6 +5415,7 @@ function createWindow() {
     focusLog: (message) => focusLog(message),
     showDashboard: () => showDashboard(),
     focusSession: (sessionId, options) => focusDashboardSession(sessionId, options),
+    toggleVoice: () => { void getVoiceMain().toggle(); },
     revealSessionHud: () => {
       if (_sessionHud && typeof _sessionHud.revealFromPet === "function") {
         _sessionHud.revealFromPet();
@@ -5865,6 +5955,8 @@ if (!gotTheLock) {
   }
 
   app.whenReady().then(async () => {
+    installVoicePermissionHandlers();
+    powerMonitor.on("suspend", () => endVoiceFor("sleep"));
     // Older macOS and development builds retain the padded runtime icon from
     // #416. Packaged Tahoe+ leaves the Dock untouched so macOS can apply the
     // user's Default/Dark/Clear/Tinted treatment to the bundle icon (#941).
@@ -6060,6 +6152,7 @@ if (!gotTheLock) {
     try { stopUpdateScheduler(); } catch {}
     releasePowerSaveBlocker();
     flushRuntimeStateToPrefs();
+    if (voiceMain) { voiceMain.onLifecycle("quit"); voiceMain.dispose(); }
     globalShortcut.unregisterAll();
     void settingsSizePreviewSession.cleanup();
     permissionAutomationConfirmationRuntime.dispose();

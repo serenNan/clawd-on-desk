@@ -152,6 +152,7 @@ function runtimeHarness(platform, shortcuts) {
     shortcutHandlers: {
       togglePet: () => {},
       quickSelectSession: () => {},
+      toggleVoice: () => {},
     },
   });
   return { runtime, registered, unregistered };
@@ -196,6 +197,7 @@ function commandDeps(platform, shortcuts, registered = []) {
     shortcutHandlers: {
       togglePet: () => {},
       quickSelectSession: () => {},
+      toggleVoice: () => {},
     },
   };
 }

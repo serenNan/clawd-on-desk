@@ -50,6 +50,7 @@ const {
   PERMISSION_DEFAULT_SECONDS,
   MAX_AUTO_CLOSE_SECONDS,
 } = require("./bubble-policy");
+const { cloneDefaultVoice, normalizeVoice } = require("./voice-settings");
 const { normalizeSessionAliases } = require("./session-alias");
 const { normalizeQuotaAlertThresholds } = require("./quota-alerts");
 const {
@@ -544,6 +545,11 @@ const SCHEMA = {
     type: "object",
     defaultFactory: () => cloneDefaultSlackNotify(),
     normalize: normalizeSlackNotify,
+  },
+  voice: {
+    type: "object",
+    defaultFactory: () => cloneDefaultVoice(),
+    normalize: normalizeVoice,
   },
   // v0.9.0 migration state. transport defaults to null (undecided) so v0.8.x
   // users upgrading without this key fall onto the "detect legacy artefacts"

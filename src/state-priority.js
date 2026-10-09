@@ -21,6 +21,10 @@ const STATE_PRIORITY = Object.freeze({
   sleeping: 0,
 });
 
+// Runtime-only voice overlay (never a session state): listening/speaking/paused sit
+// just above working (paused reuses the sleeping art); waiting-on-the-brain reuses the thinking visual.
+const VOICE_STATE_PRIORITY = Object.freeze({ listening: 3.5, speaking: 3.5, thinking: 2.5, paused: 3.5 });
+
 const ONESHOT_STATE_NAMES = ["attention", "error", "sweeping", "notification", "carrying"];
 
 const SLEEP_SEQUENCE = new Set(SLEEP_SEQUENCE_STATES);
@@ -77,10 +81,18 @@ function resolveDisplayStateFromSessions(sessions, options = {}) {
     best = "notification";
   }
 
+  const voicePriority = VOICE_STATE_PRIORITY[options.voiceState];
+  if (voicePriority && options.permissionLocked !== true && voicePriority > getStatePriority(best, statePriority)) {
+    best = options.voiceState;
+  }
+
   const updateVisualState = options.updateVisualState || null;
   if (updateVisualState) {
     const updateVisualPriority = options.updateVisualPriority || getStatePriority(updateVisualState, statePriority);
-    if (updateVisualPriority > getStatePriority(best, statePriority)) {
+    const bestPriority = best === options.voiceState && voicePriority
+      ? voicePriority
+      : getStatePriority(best, statePriority);
+    if (updateVisualPriority > bestPriority) {
       return updateVisualState;
     }
   }
@@ -91,6 +103,7 @@ function resolveDisplayStateFromSessions(sessions, options = {}) {
 module.exports = {
   SLEEP_SEQUENCE,
   STATE_PRIORITY,
+  VOICE_STATE_PRIORITY,
   ONESHOT_STATES,
   createStatePriorityConstants,
   getStatePriority,

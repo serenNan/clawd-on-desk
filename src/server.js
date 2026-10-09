@@ -50,6 +50,7 @@ const {
   shouldBypassCodexBubble,
   shouldBypassFamilyBubble,
 } = require("./server-route-permission");
+const { handleVoicePost, VOICE_ROUTES } = require("./server-route-voice");
 const { createRemoteSshIngress } = require("./remote-ssh-ingress");
 const {
   getCodexOfficialTurnKey,
@@ -1004,6 +1005,8 @@ function routeHttpRequest(req, res, remoteProfile = null) {
         recordWindowsProcessChainShadow: ctx.recordWindowsProcessChainShadow,
         remoteProfile,
       });
+    } else if (!remoteProfile && req.method === "POST" && ctx.voiceSession && VOICE_ROUTES.has(req.url)) {
+      handleVoicePost(req, res, { url: req.url, api: ctx.voiceSession, reject: rejectUnsafeLocalHookRequest });
     } else {
       res.writeHead(404);
       res.end();

@@ -282,6 +282,7 @@ module.exports = function initMenu(ctx) {
         },
       },
       buildPermissionAutomationMenuItem(),
+      ...buildVoiceMenuItems(),
     ];
 
     // OS-integration / placement group: bring-to-primary, mac dock/menu-bar,
@@ -485,6 +486,21 @@ module.exports = function initMenu(ctx) {
     ctx.flushRuntimeStateToPrefs();
   }
 
+  // Realtime voice entry: visible while the feature is enabled, and always
+  // while a call is live so it can still be ended after the pref flips off.
+  function buildVoiceMenuItems() {
+    const st = typeof ctx.getVoiceMenuState === "function" ? ctx.getVoiceMenuState() : null;
+    if (!st || !(st.enabled || st.active) || typeof ctx.toggleVoice !== "function") return [];
+    const items = [{
+      label: st.active ? t("voiceMenuStop") : t("voiceMenuStart"),
+      click: () => ctx.toggleVoice(),
+    }];
+    if (st.active && typeof ctx.toggleVoicePause === "function") {
+      items.push({ label: st.paused ? t("voiceMenuResume") : t("voiceMenuPause"), click: () => ctx.toggleVoicePause() });
+    }
+    return items;
+  }
+
   function buildContextMenu() {
     // Grouped as state / work / display / app / quit and joined with a single
     // separator between non-empty groups (see joinGroups). This replaced a flat
@@ -531,6 +547,7 @@ module.exports = function initMenu(ctx) {
       // agent permission requests are handled, and keeping it here (rather than
       // near the top) makes it harder to hit by accident.
       buildPermissionAutomationMenuItem(),
+      ...buildVoiceMenuItems(),
     ];
 
     // Display group: just the multi-display "send to display" entry. The mac

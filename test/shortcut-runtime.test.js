@@ -114,6 +114,7 @@ function createRuntime(options = {}) {
     shortcutHandlers: {
       togglePet: () => togglePetCalls.push("togglePet"),
       quickSelectSession: () => {},
+      toggleVoice: () => {},
     },
     platform: options.platform,
   });

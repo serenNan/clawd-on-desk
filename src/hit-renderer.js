@@ -153,6 +153,13 @@ document.addEventListener("pointerup", (e) => {
     return;
   }
 
+  // Realtime voice: Alt+click (non-drag) toggles the call.
+  if (e.altKey && !e.ctrlKey && !e.metaKey) {
+    resetClickAccumulator();
+    window.hitAPI.toggleVoice();
+    return;
+  }
+
   handleClick(e.clientX);
 });
 

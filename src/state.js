@@ -6,6 +6,7 @@ try { ({ screen } = require("electron")); } catch { screen = null; }
 const {
   createStatePriorityConstants,
   getStatePriority,
+  VOICE_STATE_PRIORITY,
   resolveDisplayStateFromSessions,
   resolveDominantSessionState,
 } = require("./state-priority");
@@ -307,6 +308,9 @@ let pendingState = null;
 const pendingCompletionDebounces = new Map();
 let eyeResendTimer = null;
 let updateVisualState = null;
+// Runtime-only realtime-voice overlay ("listening" | "speaking" | "thinking" | "paused").
+// Never stored in `sessions`, so HUD/session snapshots are untouched.
+let voiceOverlayState = null;
 let updateVisualKind = null;
 let updateVisualSvgOverride = null;
 let updateVisualPriority = null;
@@ -3818,7 +3822,19 @@ function resolveDisplayState() {
     permissionLocked: hasPermissionAnimationLock(),
     updateVisualState,
     updateVisualPriority,
+    voiceState: voiceOverlayState,
   });
+}
+
+function setVoiceOverlay(name) {
+  const next = name && VOICE_STATE_PRIORITY[name] ? name : null;
+  if (next === voiceOverlayState) return;
+  const leavingVoiceState = !!voiceOverlayState && currentState === voiceOverlayState;
+  voiceOverlayState = next;
+  const resolved = resolveDisplayState();
+  // Voice phases change within milliseconds; do not let one voice state's
+  // minimum display hold delay the next phase or the restore.
+  setState(resolved, getSvgOverride(resolved), leavingVoiceState ? { bypassMinDisplay: true } : {});
 }
 
 function setUpdateVisualState(kind) {
@@ -3977,7 +3993,7 @@ function cleanup() {
 }
 
 return {
-  setState, applyState, updateSession, observeClaudeToolPhase, recordRecapEventOnly, restoreSessionFromLease, resolveDisplayState, resolveVisualBinding, setUpdateVisualState,
+  setState, applyState, updateSession, observeClaudeToolPhase, recordRecapEventOnly, restoreSessionFromLease, resolveDisplayState, resolveVisualBinding, setUpdateVisualState, setVoiceOverlay,
   shouldDropForDnd,
   enableDoNotDisturb, disableDoNotDisturb,
   // Read-only, unmerged account windows for source-specific alert deduplication.

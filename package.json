@@ -18,6 +18,7 @@
     "verify:electron": "node scripts/verify-electron-install.js",
     "postinstall": "node scripts/verify-electron-install.js --context postinstall",
     "test": "node test/run-tests.js",
+    "download:voice-models": "node scripts/download-voice-models.js",
     "audit:assets": "node scripts/audit-repository-assets.js",
     "audit:pr-history-assets": "node scripts/audit-pr-history-assets.js",
     "audit:native-package": "node scripts/audit-packaged-native.js",
@@ -118,8 +119,11 @@
       ],
       "category": "public.app-category.entertainment",
       "extendInfo": {
-        "LSUIElement": true
-      }
+        "LSUIElement": true,
+        "NSMicrophoneUsageDescription": "Clawd uses the microphone only while you have started a voice chat with your desktop pet."
+      },
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "win": {
       "icon": "assets/icon.ico",
@@ -187,7 +191,9 @@
       "extensions/**/*",
       "agents/**/*",
       "themes/**/*",
-      "node_modules/jsonc-parser/**/*"
+      "node_modules/jsonc-parser/**/*",
+      "node_modules/sherpa-onnx-node/**/*",
+      "node_modules/sherpa-onnx-*/**/*"
     ],
     "extraResources": [
       {
@@ -219,6 +225,8 @@
     "jsonc-parser": "^3.3.1",
     "koffi": "2.16.3",
     "markdown-it": "15.0.0",
+    "mpg123-decoder": "1.0.3",
+    "sherpa-onnx-node": "^1.13.8",
     "ws": "^8.21.0",
     "yauzl": "^2.10.0"
   }

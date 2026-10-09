@@ -1108,6 +1108,12 @@
     "roam": [
       "clawd-mini-crabwalk.svg"
     ],
+    "listening": [
+      "clawd-idle-follow.svg"
+    ],
+    "speaking": [
+      "clawd-headphones-groove.svg"
+    ],
     "yawning": [
       "clawd-idle-yawn.svg"
     ],

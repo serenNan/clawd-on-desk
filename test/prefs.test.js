@@ -983,6 +983,7 @@ describe("prefs.validate", () => {
     assert.deepStrictEqual(d.shortcuts, {
       togglePet: "CommandOrControl+Shift+Alt+C",
       quickSelectSession: null,
+      toggleVoice: null,
       permissionAllow: "CommandOrControl+Shift+Y",
       permissionDeny: "CommandOrControl+Shift+N",
     });
@@ -997,6 +998,7 @@ describe("prefs.validate", () => {
     assert.deepStrictEqual(v.shortcuts, {
       togglePet: "CommandOrControl+K",
       quickSelectSession: null,
+      toggleVoice: null,
       permissionAllow: "CommandOrControl+Shift+Y",
       permissionDeny: "CommandOrControl+Shift+N",
     });
@@ -1013,6 +1015,7 @@ describe("prefs.validate", () => {
     assert.deepStrictEqual(v.shortcuts, {
       togglePet: "CommandOrControl+Shift+Alt+C",
       quickSelectSession: null,
+      toggleVoice: null,
       permissionAllow: "CommandOrControl+Shift+Y",
       permissionDeny: "CommandOrControl+Shift+N",
     });
@@ -1029,6 +1032,7 @@ describe("prefs.validate", () => {
     assert.deepStrictEqual(v.shortcuts, {
       togglePet: "CommandOrControl+K",
       quickSelectSession: null,
+      toggleVoice: null,
       permissionAllow: "CommandOrControl+Shift+Y",
       permissionDeny: "CommandOrControl+Shift+N",
     });
@@ -1501,6 +1505,7 @@ describe("prefs.migrate v15 → v16 (native macOS Control shortcuts)", () => {
     assert.deepStrictEqual(upgraded.shortcuts, {
       togglePet: "CommandOrControl+Shift+K",
       quickSelectSession: null,
+      toggleVoice: null,
       permissionAllow: "CommandOrControl+Shift+Y",
       permissionDeny: "CommandOrControl+Shift+N",
     });

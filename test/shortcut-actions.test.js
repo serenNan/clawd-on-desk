@@ -23,9 +23,12 @@ describe("shortcut-actions metadata", () => {
     assert.deepStrictEqual(SHORTCUT_ACTION_IDS, [
       "togglePet",
       "quickSelectSession",
+      "toggleVoice",
       "permissionAllow",
       "permissionDeny",
     ]);
+    assert.strictEqual(SHORTCUT_ACTIONS.toggleVoice.persistent, true);
+    assert.strictEqual(SHORTCUT_ACTIONS.toggleVoice.defaultAccelerator, null, "voice shortcut is unbound by default");
     assert.strictEqual(SHORTCUT_ACTIONS.togglePet.persistent, true);
     assert.strictEqual(SHORTCUT_ACTIONS.quickSelectSession.persistent, true);
     assert.strictEqual(SHORTCUT_ACTIONS.quickSelectSession.defaultAccelerator, null);
@@ -41,6 +44,7 @@ describe("shortcut-actions metadata", () => {
     assert.deepStrictEqual(a, {
       togglePet: "CommandOrControl+Shift+Alt+C",
       quickSelectSession: null,
+      toggleVoice: null,
       permissionAllow: "CommandOrControl+Shift+Y",
       permissionDeny: "CommandOrControl+Shift+N",
     });
@@ -327,6 +331,7 @@ describe("normalizeShortcuts", () => {
       {
         togglePet: "CommandOrControl+K",
         quickSelectSession: null,
+        toggleVoice: null,
         permissionAllow: "CommandOrControl+Shift+Y",
         permissionDeny: "CommandOrControl+Shift+N",
       }
@@ -343,6 +348,7 @@ describe("normalizeShortcuts", () => {
       {
         togglePet: null,
         quickSelectSession: null,
+        toggleVoice: null,
         permissionAllow: null,
         permissionDeny: null,
       }
@@ -379,6 +385,7 @@ describe("normalizeShortcuts", () => {
       {
         togglePet: "CommandOrControl+K",
         quickSelectSession: null,
+        toggleVoice: null,
         permissionAllow: "CommandOrControl+Shift+Y",
         permissionDeny: "CommandOrControl+Shift+N",
       }
@@ -394,6 +401,7 @@ describe("normalizeShortcuts", () => {
       {
         togglePet: "Control+Shift+K",
         quickSelectSession: null,
+        toggleVoice: null,
         permissionAllow: "CommandOrControl+Shift+Y",
         permissionDeny: "CommandOrControl+Shift+N",
       }
@@ -405,11 +413,13 @@ describe("normalizeShortcuts", () => {
       normalizeShortcuts({
         togglePet: "Control+Shift+K",
         quickSelectSession: null,
+        toggleVoice: null,
         permissionAllow: "CommandOrControl+Shift+K",
       }, getDefaultShortcuts(), { isMac: true }),
       {
         togglePet: "Control+Shift+K",
         quickSelectSession: null,
+        toggleVoice: null,
         permissionAllow: "CommandOrControl+Shift+K",
         permissionDeny: "CommandOrControl+Shift+N",
       }

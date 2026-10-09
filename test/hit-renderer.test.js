@@ -63,6 +63,7 @@ function createHarness({ isMac = false, sendState = {} } = {}) {
         exitMiniMode: () => apiCalls.push(["exitMiniMode"]),
         showDashboard: () => apiCalls.push(["showDashboard"]),
         revealSessionHud: () => apiCalls.push(["revealSessionHud"]),
+        toggleVoice: () => apiCalls.push(["toggleVoice"]),
         startDragReaction: (direction) => apiCalls.push(["startDragReaction", direction]),
         endDragReaction: () => apiCalls.push(["endDragReaction"]),
         playClickReaction: (svg, d) => apiCalls.push(["playClickReaction", svg, d]),
@@ -99,8 +100,8 @@ function createHarness({ isMac = false, sendState = {} } = {}) {
     apiHandlers.stateSync({ currentState: "idle", miniMode: false, dndEnabled: false });
   }
 
-  function pointerup({ button = 0, ctrlKey = false, metaKey = false, clientX = 100 } = {}) {
-    fakeDocument._dispatch("pointerup", { button, ctrlKey, metaKey, clientX });
+  function pointerup({ button = 0, ctrlKey = false, metaKey = false, altKey = false, clientX = 100 } = {}) {
+    fakeDocument._dispatch("pointerup", { button, ctrlKey, metaKey, altKey, clientX });
   }
 
   function pointerdown({ button = 0, pointerId = 1, clientX = 100, clientY = 100 } = {}) {
@@ -154,6 +155,39 @@ describe("hit-renderer input layer", () => {
     const names = h.apiCalls.map((c) => c[0]);
     assert.ok(!names.includes("showDashboard"), "mac Ctrl+click must not trigger Dashboard");
     assert.ok(!names.includes("revealSessionHud"), "mac Ctrl+click must not reveal HUD");
+  });
+
+  it("Alt+click toggles realtime voice and skips HUD reveal, reactions and Dashboard", () => {
+    for (const isMac of [true, false]) {
+      const h = createHarness({ isMac });
+      h.pointerup({ altKey: true });
+      const names = h.apiCalls.map((c) => c[0]);
+      assert.deepStrictEqual(names, ["toggleVoice"]);
+    }
+  });
+
+  it("Alt+click after a drag does not toggle voice", () => {
+    const h = createHarness();
+    h.pointerdown({});
+    h.pointermove({ clientX: 150, clientY: 100 });
+    h.pointerup({ altKey: true, clientX: 150 });
+    assert.ok(!h.apiCalls.some((c) => c[0] === "toggleVoice"));
+  });
+
+  it("Alt+click in mini mode toggles voice and does not exit mini", () => {
+    const h = createHarness();
+    h.apiHandlers.stateSync({ miniMode: true });
+    h.pointerup({ altKey: true });
+    const names = h.apiCalls.map((c) => c[0]);
+    assert.ok(names.includes("toggleVoice"));
+    assert.ok(!names.includes("exitMiniMode"));
+  });
+
+  it("plain click and Ctrl/Cmd+click keep their existing meaning (voice untouched)", () => {
+    const h = createHarness();
+    h.pointerup({});
+    h.pointerup({ ctrlKey: true });
+    assert.ok(!h.apiCalls.some((c) => c[0] === "toggleVoice"));
   });
 
   it("miniMode + plain click calls exitMiniMode (not reveal)", () => {

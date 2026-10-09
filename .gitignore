@@ -108,6 +108,7 @@ scripts/*
 # Deterministic source-backed macOS tray asset generator
 !scripts/generate-mac-tray-icons.js
 !scripts/update-official-theme-catalog-snapshot.js
+!scripts/download-voice-models.js
 !scripts/manual/
 scripts/manual/*
 !scripts/manual/README.md
@@ -117,6 +118,7 @@ scripts/manual/*
 !scripts/manual/remote-ssh-codespaces-546-readiness.js
 !scripts/manual/kimi-quota-phase0-smoke.js
 !scripts/manual/kimi-quota-phase0-smoke.ps1
+!scripts/manual/voice-sherpa-bench.js
 !scripts/remote-deploy.sh
 !scripts/run-clawdbot-stress.sh
 !scripts/monitor-clawd-resources.sh

@@ -197,3 +197,51 @@ describe("state-priority display selection", () => {
     }), "notification");
   });
 });
+
+describe("state-priority voice overlay", () => {
+  const { VOICE_STATE_PRIORITY } = require("../src/state-priority");
+
+  it("defines listening/speaking above working and the waiting overlay above session thinking", () => {
+    assert.deepStrictEqual(VOICE_STATE_PRIORITY, { listening: 3.5, speaking: 3.5, thinking: 2.5, paused: 3.5 });
+    assert.strictEqual(Object.isFrozen(VOICE_STATE_PRIORITY), true);
+    assert.ok(!("listening" in STATE_PRIORITY), "voice states are not session states");
+  });
+
+  it("is a no-op without a voice state", () => {
+    assert.strictEqual(resolveDisplayStateFromSessions([["a", session("working")]], {}), "working");
+  });
+
+  it("listening and speaking beat idle, thinking and working", () => {
+    for (const s of ["idle", "thinking", "working"]) {
+      assert.strictEqual(resolveDisplayStateFromSessions([["a", session(s)]], { voiceState: "listening" }), "listening");
+      assert.strictEqual(resolveDisplayStateFromSessions([["a", session(s)]], { voiceState: "speaking" }), "speaking");
+    }
+    assert.strictEqual(resolveDisplayStateFromSessions([], { voiceState: "listening" }), "listening");
+  });
+
+  it("the waiting overlay beats idle/thinking but not working", () => {
+    assert.strictEqual(resolveDisplayStateFromSessions([["a", session("idle")]], { voiceState: "thinking" }), "thinking");
+    assert.strictEqual(resolveDisplayStateFromSessions([["a", session("working")]], { voiceState: "thinking" }), "working");
+  });
+
+  it("carrying/juggling/attention/error/notification/sweeping still win over voice", () => {
+    for (const s of ["juggling", "carrying", "attention", "sweeping", "notification", "error"]) {
+      assert.strictEqual(resolveDisplayStateFromSessions([["a", session(s)]], { voiceState: "speaking" }), s);
+    }
+  });
+
+  it("a permission lock always wins and an unknown voice state is ignored", () => {
+    assert.strictEqual(resolveDisplayStateFromSessions([["a", session("idle")]], { voiceState: "listening", permissionLocked: true }), "notification");
+    assert.strictEqual(resolveDisplayStateFromSessions([["a", session("idle")]], { voiceState: "bogus" }), "idle");
+  });
+
+  it("update visuals above the voice priority still win", () => {
+    const out = resolveDisplayStateFromSessions([], { voiceState: "speaking", updateVisualState: "attention", updateVisualPriority: 5 });
+    assert.strictEqual(out, "attention");
+  });
+
+  it("a lower-priority update visual does not hide the voice overlay", () => {
+    const out = resolveDisplayStateFromSessions([], { voiceState: "speaking", updateVisualState: "working", updateVisualPriority: 3 });
+    assert.strictEqual(out, "speaking");
+  });
+});

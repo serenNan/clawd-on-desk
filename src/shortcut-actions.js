@@ -26,6 +26,12 @@
       // offered, registered, or allowed to occupy an accelerator there.
       supportedPlatforms: Object.freeze(["darwin", "win32"]),
     }),
+    toggleVoice: Object.freeze({
+      persistent: true,
+      defaultAccelerator: null,
+      labelKey: "shortcutLabelToggleVoice",
+      showInTutorial: false,
+    }),
     permissionAllow: Object.freeze({
       persistent: false,
       defaultAccelerator: "CommandOrControl+Shift+Y",

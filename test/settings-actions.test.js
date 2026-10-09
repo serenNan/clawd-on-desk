@@ -2255,6 +2255,7 @@ describe("shortcut commands", () => {
         shortcutHandlers: {
           togglePet: () => {},
           quickSelectSession: () => {},
+          toggleVoice: () => {},
           permissionAllow: () => {},
           permissionDeny: () => {},
         },

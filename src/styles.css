@@ -161,3 +161,40 @@ html, body {
     translate: 3px 0;
   }
 }
+
+/* ── Realtime voice ──
+   --voice-level (0..1) is written on <body> by voice-renderer-boot.js. The
+   indicator stays visible during a call even when a high-priority coding
+   animation owns the pet, so the mic never looks silently off. */
+#voice-indicator {
+  position: absolute;
+  top: 4%;
+  right: 6%;
+  width: 20px;
+  height: 20px;
+  color: #34c759;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(calc(1 + var(--voice-level, 0) * 0.5));
+  filter: drop-shadow(0 0 calc(2px + var(--voice-level, 0) * 8px) rgba(52, 199, 89, 0.85));
+  transition: opacity 120ms linear, transform 60ms linear;
+}
+
+#voice-indicator.active {
+  opacity: 1;
+}
+
+/* Paused: grey mic with a slash, no level reaction. */
+#voice-indicator.paused {
+  color: #8e8e93;
+  transform: none;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.6));
+}
+
+#voice-indicator .voice-slash { display: none; }
+#voice-indicator.paused .voice-slash { display: inline; }
+
+body.voice-active #pet-motion-stage {
+  scale: calc(1 + var(--voice-level, 0) * 0.045);
+  transition: scale 60ms linear;
+}

@@ -166,3 +166,30 @@ describe("state-visual-resolver SVG overrides", () => {
     assert.strictEqual(getSvgOverride("idle", options), "update-idle.svg");
   });
 });
+
+describe("state-visual-resolver voice states", () => {
+  const baseTheme = (extraStates = {}) => ({
+    states: { idle: ["idle.svg"], working: ["work.svg"], thinking: ["think.svg"], ...extraStates },
+  });
+
+  it("falls back listening -> idle and speaking -> working when the theme has no voice assets", () => {
+    const bindings = buildStateBindings(baseTheme());
+    assert.strictEqual(resolveVisualBinding("listening", bindings), "idle.svg");
+    assert.strictEqual(resolveVisualBinding("speaking", bindings), "work.svg");
+    assert.strictEqual(hasOwnVisualFiles(bindings, "listening"), false);
+  });
+
+  it("uses theme-provided voice assets when present", () => {
+    const bindings = buildStateBindings(baseTheme({ listening: ["ear.svg"], speaking: ["talk.svg"] }));
+    assert.strictEqual(resolveVisualBinding("listening", bindings), "ear.svg");
+    assert.strictEqual(resolveVisualBinding("speaking", bindings), "talk.svg");
+  });
+
+  it("lets a theme redirect a voice state via fallbackTo", () => {
+    const bindings = buildStateBindings({
+      _stateBindings: { speaking: { files: [], fallbackTo: "thinking" } },
+      ...baseTheme(),
+    });
+    assert.strictEqual(resolveVisualBinding("speaking", bindings), "think.svg");
+  });
+});

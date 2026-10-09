@@ -68,4 +68,25 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setLowPowerIdlePaused: (paused) => ipcRenderer.send("low-power-idle-paused", !!paused),
   reportSystemWakeStatus: (payload) => ipcRenderer.send("system-wake-status", payload),
   reportAccessoryMirror: (mirrored) => ipcRenderer.send("accessory-mirror", !!mirrored),
+  // Realtime voice: fixed voice:* channels only. Audio/PCM crosses as typed arrays;
+  // main re-validates every payload and checks this window is the trusted sender.
+  voice: {
+    onStart: (cb) => ipcRenderer.on("voice:start", (_, info) => cb(info)),
+    onStop: (cb) => ipcRenderer.on("voice:stop", (_, info) => cb(info)),
+    onStopPlayback: (cb) => ipcRenderer.on("voice:stop-playback", (_, info) => cb(info)),
+    onTtsPcm: (cb) => ipcRenderer.on("voice:tts-pcm", (_, chunk) => cb(chunk)),
+    onTtsEnd: (cb) => ipcRenderer.on("voice:tts-end", (_, info) => cb(info)),
+    onPartial: (cb) => ipcRenderer.on("voice:partial", (_, info) => cb(info)),
+    onVad: (cb) => ipcRenderer.on("voice:vad", (_, info) => cb(info)),
+    onMuted: (cb) => ipcRenderer.on("voice:muted", (_, info) => cb(info)),
+    onPaused: (cb) => ipcRenderer.on("voice:paused", (_, info) => cb(info)),
+    speechStart: () => ipcRenderer.send("voice:speech-start"),
+    audio: (bytes) => ipcRenderer.send("voice:audio", bytes),
+    speechEnd: (info) => ipcRenderer.send("voice:speech-end", info),
+    bargeCommit: (info) => ipcRenderer.send("voice:barge-commit", info),
+    ack: (info) => ipcRenderer.send("voice:ack", info),
+    buffered: (ms) => ipcRenderer.send("voice:buffered", ms),
+    rendererError: (info) => ipcRenderer.send("voice:renderer-error", info),
+    debugLog: (info) => ipcRenderer.send("voice:debug-log", info),
+  },
 });

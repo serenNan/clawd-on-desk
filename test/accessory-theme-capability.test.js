@@ -71,7 +71,7 @@ describe("built-in accessory capability contracts", () => {
     const usages = projectThemeVisualUsages(raw);
     const files = collectRequiredAssetFiles(raw);
 
-    assert.strictEqual(usages.length, 52);
+    assert.strictEqual(usages.length, 54); // +2: optional listening/speaking voice states
     assert.strictEqual(files.length, 50);
     assert.deepStrictEqual(
       new Set(files),
