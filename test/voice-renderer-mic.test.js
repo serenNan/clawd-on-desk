@@ -40,28 +40,33 @@ test("vad:main when the assistant is silent, plain voiced frames still count (no
   assert.equal(env.sink.ops.some((o) => o[0] === "duck"), false);
 });
 
-// ---- pause really releases the microphone ----
-test("pause stops the mic track and detaches the source; resume re-acquires with the same constraints", async () => {
+// ---- mute keeps the microphone open (wake phrase is recognised locally) ----
+test("pause keeps the mic track and source alive; frames keep flowing; barge-in is disarmed", async () => {
   const env = makeEnv();
   await env.renderer.start({ vad: "main" });
-  assert.equal(env.calls.filter((c) => c[0] === "getUserMedia").length, 1);
+  startPlayback(env);
   await env.renderer.handlePaused({ paused: true });
-  assert.equal(env.tracks[0].stopped, true);
-  assert.equal(env.sources[0].disconnected, true);
-  assert.ok(env.calls.some((c) => c[0] === "debugLog" && c[1].event === "mic_released"));
-  assert.equal(env.renderer.isRunning(), true, "the call itself stays up");
-  await env.renderer.handlePaused({ paused: true }); // idempotent
+  assert.equal(env.tracks[0].stopped, false);
+  assert.equal(env.sources[0].disconnected, false);
   assert.equal(env.calls.filter((c) => c[0] === "getUserMedia").length, 1);
-  await env.renderer.handlePaused({ paused: false });
-  const gums = env.calls.filter((c) => c[0] === "getUserMedia");
-  assert.equal(gums.length, 2);
-  assert.deepEqual(gums[1][1], gums[0][1]);
-  assert.equal(env.tracks.length, 2);
-  assert.equal(env.tracks[1].stopped, false);
-  assert.equal(env.sources.length, 2);
-  assert.equal(env.sources[1].stream.getAudioTracks()[0], env.tracks[1]);
+  env.calls.length = 0;
   feed(env, 0.3, 100);
-  assert.ok(env.calls.some((c) => c[0] === "audio"), "frames flow again");
+  assert.ok(env.calls.some((c) => c[0] === "audio"), "frames still flow to main");
+  env.renderer.handleVad({ type: "speech-start" });
+  for (let i = 0; i < 50; i++) { env.renderer.handleVad({ type: "frame", voiced: true, strong: true }); env.advance(20); }
+  assert.equal(env.sink.ops.some((o) => o[0] === "duck" || o[0] === "stop"), false);
+  assert.equal(env.calls.some((c) => c[0] === "bargeCommit"), false);
+  await env.renderer.handlePaused({ paused: false });
+  assert.equal(env.calls.filter((c) => c[0] === "getUserMedia").length, 0, "no re-acquire on resume");
+});
+
+test("a dead track while paused is still rebuilt", async () => {
+  const env = makeEnv();
+  await env.renderer.start({ vad: "main" });
+  await env.renderer.handlePaused({ paused: true });
+  await env.renderer.handleMicRestart({ attempt: 1 });
+  assert.equal(env.tracks[0].stopped, true);
+  assert.equal(env.calls.filter((c) => c[0] === "getUserMedia").length, 2);
 });
 
 test("stopping the call while paused leaves nothing open", async () => {

@@ -8,7 +8,7 @@ const MAX_AUDIO_BYTES = 64 * 1024;
 const END_REASONS = new Set(["silence", "limit", "noise"]);
 const OUT_CHANNELS = new Set([
   "voice:start", "voice:stop", "voice:stop-playback", "voice:tts-pcm", "voice:tts-end",
-  "voice:partial", "voice:vad", "voice:notice", "voice:muted", "voice:paused", "voice:state",
+  "voice:partial", "voice:vad", "voice:notice", "voice:muted", "voice:paused", "voice:mic-restart", "voice:mic-select", "voice:capture",
 ]);
 
 const isId = (v) => typeof v === "string" && v.length > 0 && v.length <= 64;
@@ -31,7 +31,7 @@ function createVoicePermissionPolicy({ getTrustedWebContents, isCallActive }) {
   };
 }
 
-function registerVoiceIpc({ ipcMain, runtime, getTrustedWebContents, log }) {
+function registerVoiceIpc({ ipcMain, runtime, getTrustedWebContents, log, onMicDevices }) {
   const registered = [];
   const isTrusted = (sender) => {
     const wc = getTrustedWebContents();
@@ -64,6 +64,12 @@ function registerVoiceIpc({ ipcMain, runtime, getTrustedWebContents, log }) {
   });
   // Renderer debug events: the log module whitelists names and sanitises fields.
   on("voice:debug-log", (_, raw) => { if (log) log.logRenderer(raw); });
+  // Device names for the settings picker (only the pet window holds mic permission, so it reports them).
+  on("voice:mic-devices", (_, raw) => {
+    if (!onMicDevices || !Array.isArray(raw)) return;
+    onMicDevices(raw.slice(0, 32).filter((d) => d && isId(d.deviceId) && d.deviceId.length <= 256 && typeof d.label === "string")
+      .map((d) => ({ deviceId: d.deviceId, label: d.label.slice(0, 128) })));
+  });
   on("voice:renderer-error", (p) => runtime.handleRendererError({ code: isId(p.code) ? p.code : "renderer_error" }));
 
   return {

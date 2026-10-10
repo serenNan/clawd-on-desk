@@ -600,6 +600,12 @@ describe("package build config", () => {
       }
       for (const platform of ["win", "mac", "linux"]) {
         const entries = pkg.build[platform] && pkg.build[platform].extraResources;
+        if (platform === "mac") {
+          // The only allowed mac extraResource: the AirPods-stem mute helper (scripts/build-mute-helper.js).
+          assert.deepEqual(entries, [{ from: "build/bin/clawd-mute-helper", to: "bin/clawd-mute-helper" }]);
+          assert.equal(pkg.build.beforePack, "scripts/build-mute-helper.js");
+          continue;
+        }
         assert.equal(entries, undefined, `${platform} should not package a Telegram sidecar`);
       }
       assert.deepEqual(pkg.build.extraResources, [{ from: "assets/icon.ico", to: "icon.ico" }]);

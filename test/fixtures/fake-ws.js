@@ -15,6 +15,7 @@ function createFakeWebSocket() {
       instances.push(this);
     }
     send(data) { this.sent.push(data); }
+    ping() { this.pings = (this.pings || 0) + 1; }
     close() { if (!this.closed) { this.closed = true; this.emit("close", 1000); } }
     open() { this.emit("open"); }
     serverJson(obj) { this.emit("message", Buffer.from(JSON.stringify(obj)), false); }

@@ -23,3 +23,11 @@ test("empty / single-char text and empty spoken list are never echo", () => {
   assert.equal(isEchoText("天", spoken), false);
   assert.equal(isEchoText("今天北京", []), false);
 });
+
+test("hasChinese needs a Han character (a bare 好 still counts as an answer)", () => {
+  const { hasChinese } = require("../src/voice-echo");
+  assert.equal(hasChinese("No just in time to see"), false);
+  assert.equal(hasChinese("ok"), false);
+  assert.equal(hasChinese("好"), true);
+  assert.equal(hasChinese("帮我打开 GitHub"), true);
+});

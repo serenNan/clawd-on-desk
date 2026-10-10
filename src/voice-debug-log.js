@@ -15,6 +15,8 @@ const RENDERER_EVENTS = new Set([
   "renderer_start", "mic_ok", "mic_error", "vad_speech_start", "vad_speech_end",
   "barge_duck", "barge_commit", "barge_restore", "playback_start", "playback_ack",
   "playback_stop", "renderer_exception", "mic_released", "mic_reacquired",
+  "track_mute", "track_unmute", "track_ended", "ctx_state", "mic_restart", "mic_restarted",
+  "mic_device", "mic_device_fallback", "mic_devices", "mic_select",
 ]);
 
 function errorFields(err) {

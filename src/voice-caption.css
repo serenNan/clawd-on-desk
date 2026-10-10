@@ -1,0 +1,36 @@
+/* Caption bubble (own click-through window above the pet); same card look as bubble.css. */
+:root { --voice-bubble-bg: #ffffff; --voice-bubble-border: rgba(0, 0, 0, 0.08); --voice-bubble-text: #18181b; }
+html, body { width: 100%; height: 100%; margin: 0; background: transparent; overflow: hidden; }
+body { padding: 6px; -webkit-user-select: none; user-select: none; }
+
+.voice-caption {
+  box-sizing: border-box;
+  max-height: 100%;
+  padding: 5px 10px;
+  border-radius: 12px;
+  background: var(--voice-bubble-bg);
+  border: 1px solid var(--voice-bubble-border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
+  color: var(--voice-bubble-text);
+  font: 500 11px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+  text-align: center;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 250ms ease, transform 250ms ease;
+}
+.voice-caption.show { opacity: 1; transform: none; }
+.voice-caption[data-role="user"] { color: #52525b; font-style: italic; }
+.voice-caption[data-role="hint"] { font-weight: 600; }
+
+@media (prefers-color-scheme: dark) {
+  :root { --voice-bubble-bg: #18181b; --voice-bubble-border: rgba(255, 255, 255, 0.1); --voice-bubble-text: #f4f4f5; }
+  .voice-caption[data-role="user"] { color: #a1a1aa; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-caption { transition: none; transform: none; }
+}

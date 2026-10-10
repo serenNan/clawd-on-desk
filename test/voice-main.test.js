@@ -3,65 +3,8 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { createVoiceMain } = require("../src/voice-main");
+const { makeHarness } = require("./fixtures/voice-main-harness");
 const { cloneDefaultVoice, DASHSCOPE_KEY_ENV } = require("../src/voice-settings");
-
-function fakeProvider(id, extra = {}) {
-  return {
-    id,
-    capabilities: { sampleRate: 16000, channels: 1, format: "s16le" },
-    begin: () => ({ writeAudio() {}, writeText() {}, finish() {}, cancel() {} }),
-    ...extra,
-  };
-}
-
-function makeHarness(opts = {}) {
-  const log = { notices: [], overlays: [], sent: [], created: [], updates: [], listeners: new Map(), mediaAsks: 0, dbg: [], cues: [] };
-  let voice = { ...cloneDefaultVoice(), tts: "local-kokoro", enabled: true, ...(opts.voice || {}) };
-  const wc = { id: 7, isDestroyed: () => false, send: (c, p) => log.sent.push([c, p]) };
-  const factories = {
-    createLocalStt: () => { log.created.push("local-stt"); return fakeProvider("local-whisper"); },
-    createLocalTts: () => { log.created.push("local-tts"); return fakeProvider("local-kokoro"); },
-    createEdgeTts: (o) => { log.created.push(["edge-tts", o.voice, o.speed]); return fakeProvider("edge-" + o.voice); },
-    createAliyunStt: (o) => { log.created.push(["aliyun-stt", !!o.apiKey]); return fakeProvider("aliyun-paraformer"); },
-    createAliyunTts: (o) => { log.created.push(["aliyun-tts", o.model, o.voice, o.voiceId]); return fakeProvider("aliyun-" + o.model); },
-    sherpaStatus: () => (opts.sherpa === "ready" ? { ready: true, missing: [] } : { ready: false, missing: ["silero_vad.onnx"] }),
-    createSherpa: (o) => {
-      if (opts.sherpaThrows) throw new Error("dlopen failed");
-      log.created.push("sherpa");
-      log.sherpaOpts = o;
-      return { stt: fakeProvider("sherpa-onnx"), vad: { processChunk: () => [], reset() {}, isSpeaking: () => false } };
-    },
-    createClaudeBrain: (o) => { log.created.push(["brain", o.claudePath]); return { id: "claude-code", probe: async () => opts.probe || { ok: true }, send() {}, cancel() {}, reset() {}, dispose() { log.created.push("brain-dispose"); } }; },
-  };
-  const handlers = new Map();
-  const ipcMain = {
-    on: (c, f) => log.listeners.set(c, f), removeListener: (c) => log.listeners.delete(c),
-    handle: (c, f) => handlers.set(c, f), removeHandler: (c) => handlers.delete(c),
-  };
-  log.handlers = handlers;
-  let mini = false;
-  const vm = createVoiceMain({
-    ipcMain,
-    getPetWebContents: () => wc,
-    getVoice: () => voice,
-    applyVoiceUpdate: async (next) => { log.updates.push(next); voice = next; return { status: "ok" }; },
-    env: opts.env || {},
-    platform: opts.platform || "darwin",
-    systemPreferences: opts.noSysPrefs ? null : {
-      getMediaAccessStatus: () => opts.mic || "granted",
-      askForMediaAccess: async () => { log.mediaAsks++; return opts.askResult !== false; },
-    },
-    isMiniTransitioning: () => mini,
-    setVoiceOverlay: (n) => log.overlays.push(n),
-    playCue: (name) => log.cues.push(name),
-    notify: (code, detail) => log.notices.push([code, detail]),
-    confirmCloudConsent: async () => opts.consent === true,
-    debugLog: { log: (event, f) => log.dbg.push([event, f]), logRenderer() {} },
-    factories,
-  });
-  return { vm, log, wc, setMini: (v) => { mini = v; }, setVoice: (v) => { voice = { ...voice, ...v }; }, emit: (c, p) => log.listeners.get(c)({ sender: wc }, p) };
-}
 
 test("pause shows the paused pet state and plays end; resume goes back to listening with start", async () => {
   const h = makeHarness();
@@ -193,12 +136,12 @@ test("brain probe failure surfaces as a notice and leaves nothing running", asyn
 test("settings: disabling voice or switching provider while active ends the call", async () => {
   const h = makeHarness();
   await h.vm.toggle();
-  h.vm.onSettingsChanged({ ...cloneDefaultVoice(), tts: "local-kokoro", enabled: true });
+  h.vm.onSettingsChanged({ ...cloneDefaultVoice(), brain: "claude-code", tts: "local-kokoro", enabled: true });
   assert.equal(h.vm.getState().active, true);
-  h.vm.onSettingsChanged({ ...cloneDefaultVoice(), enabled: true, tts: "aliyun-cosyvoice-v3-flash" });
+  h.vm.onSettingsChanged({ ...cloneDefaultVoice(), brain: "claude-code", enabled: true, tts: "aliyun-cosyvoice-v3-flash" });
   assert.equal(h.vm.getState().active, false);
   await h.vm.toggle();
-  h.vm.onSettingsChanged({ ...cloneDefaultVoice(), enabled: false });
+  h.vm.onSettingsChanged({ ...cloneDefaultVoice(), brain: "claude-code", enabled: false });
   assert.equal(h.vm.getState().active, false);
 });
 
@@ -305,9 +248,10 @@ test("sessionStart on a running claude-code call switches to session mode; stop 
   const h = makeHarness();
   await h.vm.toggle();
   assert.equal(h.vm.getState().sessionMode, false);
-  assert.equal((await h.vm.sessionStart()).status, "ok");
+  const started = await h.vm.sessionStart();
+  assert.equal(started.status, "ok");
   assert.equal(h.vm.getState().sessionMode, true);
-  assert.deepEqual(await h.vm.sessionStop(), { status: "ok" });
+  assert.deepEqual(await h.vm.sessionStop({ owner: started.owner }), { status: "ok" });
   assert.equal(h.vm.getState().active, false);
   assert.equal((await h.vm.toggle()).status, "ok");
   assert.equal(h.vm.getState().sessionMode, false, "override gone; real setting (claude-code) applies");
@@ -327,18 +271,17 @@ test("converse requires an active session-mode call", async () => {
   assert.deepEqual(await h.vm.converse({ text: "x" }), { error: "not-in-session" });
   await h.vm.toggle();
   assert.deepEqual(await h.vm.converse({ text: "x" }), { error: "not-in-session" });
-  await h.vm.sessionStart();
-  const p = h.vm.converse({});
-  await h.vm.sessionStop();
+  const { owner } = await h.vm.sessionStart();
+  const p = h.vm.converse({ owner });
+  await h.vm.sessionStop({ owner });
   assert.equal((await p).ended, true);
 });
 
-test("user-configured session brain (settings) works via toggle", async () => {
+test("user-configured session brain does not let toggle open a call by itself", async () => {
   const h = makeHarness({ voice: { brain: "session" } });
-  await h.vm.toggle();
-  assert.equal(h.vm.getState().sessionMode, true);
+  assert.equal((await h.vm.toggle()).status, "needs-session");
+  assert.equal(h.vm.getState().active, false);
 });
-
 // ---- Edge TTS (default), fallback, end-silence, pause ----
 
 test("edge TTS passes voice and speed, needs consent but no DashScope key", async () => {
@@ -386,14 +329,14 @@ test("shortcut: no call -> starts one; active call -> pauses/resumes the mic ins
 
 test("session mode: shortcut pauses without ending a pending converse", async () => {
   const h = makeHarness();
-  await h.vm.sessionStart();
+  const { owner } = await h.vm.sessionStart();
   let settled = null;
-  const p = h.vm.converse({ timeoutS: 5 }).then((r) => { settled = r; });
+  const p = h.vm.converse({ owner, timeoutS: 5 }).then((r) => { settled = r; });
   await h.vm.shortcutToggle();
   await new Promise((r) => setImmediate(r));
   assert.equal(settled, null, "converse still pending while paused");
   assert.equal(h.vm.getState().paused, true);
-  await h.vm.sessionStop();
+  await h.vm.sessionStop({ owner });
   await p;
   assert.equal(settled.ended, true);
 });
@@ -406,4 +349,44 @@ test("menu state exposes paused, and a call end clears it", async () => {
   await h.vm.toggle();
   assert.equal(h.vm.getState().active, false);
   assert.equal(h.vm.getState().paused, false);
+});
+
+// ---- single owner: the newest /voice/session/start wins ----
+
+test("a new sessionStart takes over: new owner token, old pending converse ends taken_over, old text is not spoken", async () => {
+  const h = makeHarness();
+  const a = await h.vm.sessionStart();
+  assert.equal(a.status, "ok");
+  assert.match(a.owner, /^[0-9a-f-]{16,}$/);
+  const pending = h.vm.converse({ owner: a.owner, text: "" });
+  const b = await h.vm.sessionStart();
+  assert.equal(b.status, "ok");
+  assert.notEqual(b.owner, a.owner);
+  assert.deepEqual(await pending, { ended: true, reason: "taken_over" });
+  assert.equal(h.vm.getState().active, true, "call stays up for the new owner");
+  const before = h.log.sent.length;
+  assert.deepEqual(await h.vm.converse({ owner: a.owner, text: "旧会话的话" }), { ended: true, reason: "taken_over" });
+  assert.equal(h.log.sent.length, before, "nothing sent to the renderer for the old owner");
+  const live = h.vm.converse({ owner: b.owner, text: "" });
+  await h.vm.sessionStop({ owner: b.owner });
+  assert.equal((await live).ended, true);
+});
+
+test("sessionStop with a stale owner is ignored; missing owner counts as stale", async () => {
+  const h = makeHarness();
+  const a = await h.vm.sessionStart();
+  const b = await h.vm.sessionStart();
+  assert.deepEqual(await h.vm.sessionStop({ owner: a.owner }), { status: "ok", ignored: true, reason: "taken_over" });
+  assert.deepEqual(await h.vm.sessionStop({}), { status: "ok", ignored: true, reason: "taken_over" });
+  assert.equal(h.vm.getState().active, true);
+  assert.deepEqual(await h.vm.converse({ text: "x" }), { ended: true, reason: "taken_over" });
+  await h.vm.sessionStop({ owner: b.owner });
+  assert.equal(h.vm.getState().active, false);
+});
+
+test("owner is cleared when the call ends; converse then reports not-in-session", async () => {
+  const h = makeHarness();
+  const a = await h.vm.sessionStart();
+  await h.vm.sessionStop({ owner: a.owner });
+  assert.deepEqual(await h.vm.converse({ owner: a.owner, text: "x" }), { error: "not-in-session" });
 });

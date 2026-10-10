@@ -66,7 +66,7 @@ test("voice tab offers the session brain driven by /clawd-voice", () => {
   const code = read("settings-tab-voice.js");
   assert.match(code, /\["session",\s*"voiceBrainSession"\]/);
   assert.match(code, /selectRow\("voiceBrainLabel",\s*"brain"/);
-  assert.match(read("settings-i18n.js"), /voiceBrainSession: "由 Claude Code 会话 \/clawd-voice 驱动"/);
+  assert.match(read("settings-i18n.js"), /voiceBrainSession: "由 Claude Code 会话 \/clawd-voice 驱动（推荐/);
 });
 
 test("voice tab: Edge TTS is the first/default option with a voice picker and a cloud privacy note", () => {
@@ -94,9 +94,18 @@ test("settings text states the shortcut pauses the mic during a call, and the Mi
   context.globalThis = context;
   vm.runInNewContext(read("settings-i18n.js"), context, { filename: "settings-i18n.js" });
   const strings = context.ClawdSettingsI18n.STRINGS;
-  assert.match(strings.en.voiceEnabledDesc, /pauses \/ resumes the microphone/);
-  assert.match(strings["zh"].voiceEnabledDesc, /暂停 \/ 恢复收音/);
+  assert.match(strings.en.voiceEnabledDesc, /pauses \/ resumes the microphone instead/);
+  assert.match(strings["zh"].voiceEnabledDesc, /只暂停\/恢复麦克风/);
   assert.match(strings.en.voiceCloudConsentDesc, /Microsoft/);
   assert.match(strings.zh.voiceCloudConsentDesc, /微软/);
   assert.match(strings.zh.shortcutLabelToggleVoice, /暂停或恢复收音/);
+});
+
+test("voice tab has a microphone picker: system default first, saves id + label, refreshes on devicechange, hints when unlabeled", () => {
+  const code = read("settings-tab-voice.js");
+  assert.match(code, /enumerateDevices/);
+  assert.match(code, /"devicechange"/);
+  assert.match(code, /value:\s*"",\s*label:\s*t\("voiceMicDefault"\)/);
+  assert.match(code, /save\(\{ micDeviceId: next, micLabel:/);
+  assert.match(code, /voiceMicNoLabels/);
 });

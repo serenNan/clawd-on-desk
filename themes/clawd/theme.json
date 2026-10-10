@@ -1109,10 +1109,13 @@
       "clawd-mini-crabwalk.svg"
     ],
     "listening": [
-      "clawd-idle-follow.svg"
+      "clawd-headphones-groove.svg"
     ],
     "speaking": [
-      "clawd-headphones-groove.svg"
+      "clawd-working-thinking.svg"
+    ],
+    "voiceThinking": [
+      "clawd-idle-bubble.svg"
     ],
     "yawning": [
       "clawd-idle-yawn.svg"

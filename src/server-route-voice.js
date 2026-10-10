@@ -41,15 +41,18 @@ function handleVoicePost(req, res, { url, api, reject }) {
   if (reject(req, res, url)) return;
   readJsonBody(req, (err, body) => {
     if (err) { sendJson(res, err.status, { error: err.status === 413 ? "too-large" : "bad-json" }); return; }
+    const owner = typeof body.owner === "string" && body.owner.length <= 64 ? body.owner : undefined;
+    const label = typeof body.label === "string" ? body.label.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 48) : "";
     const done = (result) => sendJson(res, result && result.error ? 409 : 200, result);
     const fail = () => sendJson(res, 500, { error: "voice-internal" });
-    if (url === "/voice/session/start") api.sessionStart().then(done, fail);
-    else if (url === "/voice/session/stop") api.sessionStop().then(done, fail);
+    if (url === "/voice/session/start") api.sessionStart({ label }).then(done, fail);
+    else if (url === "/voice/session/stop") api.sessionStop({ owner }).then(done, fail);
     else {
       const ac = new AbortController();
       res.on("close", () => { if (!res.writableEnded) ac.abort(); });
       const t = Number(body.timeout_s);
       api.converse({
+        owner,
         text: typeof body.text === "string" ? body.text : "",
         timeoutS: Number.isFinite(t) && t > 0 ? t : undefined,
         signal: ac.signal,

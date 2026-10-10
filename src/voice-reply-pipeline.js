@@ -35,14 +35,18 @@ function createReplyPipeline(host) {
     const handlers = {
       onAudio: (chunk) => {
         if (sessions.get(item.sid) !== session || epoch !== host.epoch()) return;
-        if (!firstPcm) { firstPcm = true; log("tts_first_pcm", { sentenceId: item.sid, provider: tts.id, ms: Date.now() - t0, epoch }); }
-        host.send("voice:tts-pcm", { epoch, sentenceId: item.sid, pcm: chunk.pcm, sampleRate: chunk.sampleRate, channels: chunk.channels });
-        host.setPhase("speaking");
+        if (!firstPcm) {
+          firstPcm = true;
+          log("tts_first_pcm", { sentenceId: item.sid, provider: tts.id, ms: Date.now() - t0, epoch });
+        }
+        item.out.push({ epoch, sentenceId: item.sid, pcm: chunk.pcm, sampleRate: chunk.sampleRate, channels: chunk.channels });
+        release();
       },
       onEnd: () => {
         if (sessions.get(item.sid) !== session || epoch !== host.epoch()) return;
         log("tts_end", { sentenceId: item.sid, ms: Date.now() - t0, gotAudio: firstPcm });
-        host.send("voice:tts-end", { epoch, sentenceId: item.sid });
+        item.ended = epoch;
+        release();
       },
       onError: (err) => {
         if (sessions.get(item.sid) !== session || epoch !== host.epoch()) return;
@@ -50,12 +54,30 @@ function createReplyPipeline(host) {
         onTtsError(err);
       },
     };
+    item.out = []; item.ended = null; item.released = false; item.captioned = false;
     log("tts_request", { sentenceId: item.sid, provider: tts.id, textLen: item.text.length, epoch });
     const session = tts.begin(handlers);
     sessions.set(item.sid, session);
     inflight.push(item);
     session.writeText(item.text);
     session.finish();
+  }
+
+  // Sentences synthesize in parallel, but the renderer appends PCM to one timeline
+  // in arrival order: hold a sentence's audio until every earlier one has ended.
+  function release() {
+    for (const item of inflight) {
+      if (item.released) continue;
+      if (item.out.length) {
+        if (!item.captioned && host.caption) { item.captioned = true; host.caption("assistant", item.text, true); }
+        for (const p of item.out) host.send("voice:tts-pcm", p);
+        item.out = [];
+        host.setPhase("speaking");
+      }
+      if (item.ended === null) return;
+      item.released = true;
+      host.send("voice:tts-end", { epoch: item.ended, sentenceId: item.sid });
+    }
   }
 
   function pump() {
@@ -92,7 +114,7 @@ function createReplyPipeline(host) {
   function onTtsError(err) {
     const fb = host.fallbackTts();
     if (!fb || fb === tts || !host.localFallbackEnabled()) { host.fail(err.code || "tts_failed"); return; }
-    const unplayed = [...inflight, ...pending];
+    const unplayed = [...inflight, ...pending].map(({ sid, text }) => ({ sid, text }));
     log("tts_fallback", { from: tts.id, to: fb.id, code: err.code, unplayed: unplayed.length });
     closeSessions();
     host.restartEpoch();

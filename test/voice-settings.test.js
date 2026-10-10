@@ -11,10 +11,10 @@ const {
   DASHSCOPE_KEY_ENV,
 } = require("../src/voice-settings");
 
-test("defaults: disabled, claude brain, sherpa-onnx STT, Edge TTS, no cloud consent", () => {
+test("defaults: disabled, session brain, sherpa-onnx STT, Edge TTS, no cloud consent", () => {
   const d = cloneDefaultVoice();
   assert.equal(d.enabled, false);
-  assert.equal(d.brain, "claude-code");
+  assert.equal(d.brain, "session");
   assert.equal(d.stt, "sherpa-onnx");
   assert.equal(d.tts, "edge");
   assert.equal(d.edgeVoice, "zh-CN-XiaoxiaoNeural");
@@ -105,7 +105,7 @@ test("brain accepts session and still rejects unknown brains", () => {
   assert.equal(normalizeVoice({ brain: "session" }).brain, "session");
   assert.equal(validateVoice({ brain: "session" }).status, "ok");
   assert.equal(validateVoice({ brain: "gpt" }).status, "error");
-  assert.equal(normalizeVoice({ brain: "gpt" }).brain, "claude-code");
+  assert.equal(normalizeVoice({ brain: "gpt" }).brain, "session");
 });
 
 test("local Kokoro voice and speed are configurable and bounded", () => {
@@ -146,4 +146,20 @@ test("voice cue switch defaults on and accepts booleans only", () => {
   assert.equal(normalizeVoice({}).cueEnabled, true);
   assert.equal(normalizeVoice({ cueEnabled: false }).cueEnabled, false);
   assert.equal(normalizeVoice({ cueEnabled: "no" }).cueEnabled, true);
+});
+
+test("captions defaults to on, must be a boolean", () => {
+  const { cloneDefaultVoice, normalizeVoice, validateVoice } = require("../src/voice-settings");
+  assert.equal(cloneDefaultVoice().captions, true);
+  assert.equal(normalizeVoice({ captions: false }).captions, false);
+  assert.equal(normalizeVoice({ captions: "no" }).captions, true);
+  assert.equal(validateVoice({ captions: "x" }).status, "error");
+  assert.equal(validateVoice({ captions: false }).status, "ok");
+});
+
+test("default brain is the Claude Code session; the background CLI brain stays selectable", () => {
+  const { cloneDefaultVoice, normalizeVoice, validateVoice } = require("../src/voice-settings");
+  assert.equal(cloneDefaultVoice().brain, "session");
+  assert.equal(normalizeVoice({ brain: "claude-code" }).brain, "claude-code");
+  assert.equal(validateVoice({ brain: "claude-code" }).status, "ok");
 });

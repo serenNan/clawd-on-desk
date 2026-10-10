@@ -138,3 +138,33 @@ test("server.js dispatches /voice/* through the transport guard; unknown ctx -> 
   const without = mk({});
   assert.equal((await call(without, post("/voice/session/start"))).status, 404);
 });
+
+test("owner token from the body reaches stop and converse; taken_over is a normal 200", async () => {
+  let stopOwner;
+  let convOwner;
+  const a = api({
+    sessionStop: async (o) => { stopOwner = o.owner; return { status: "ok" }; },
+    converse: async (o) => { convOwner = o.owner; return { ended: true, reason: "taken_over" }; },
+  });
+  await run("/voice/session/stop", makeReq({ owner: "tok-1" }), a);
+  const res = await run("/voice/converse", makeReq({ text: "x", owner: "tok-2" }), a);
+  assert.equal(stopOwner, "tok-1");
+  assert.equal(convOwner, "tok-2");
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body, { ended: true, reason: "taken_over" });
+  await run("/voice/converse", makeReq({ text: "x", owner: 5 }), a);
+  assert.equal(convOwner, undefined, "non-string owner is dropped");
+});
+
+test("session/start passes a sanitized session label", async () => {
+  let got;
+  const a = api({ sessionStart: async (o) => { got = o; return { status: "ok" }; } });
+  await run("/voice/session/start", makeReq({ label: "clawd·a1b2c3" }), a);
+  assert.equal(got.label, "clawd·a1b2c3");
+  await run("/voice/session/start", makeReq({ label: "x".repeat(200) }), a);
+  assert.equal(got.label.length, 48);
+  await run("/voice/session/start", makeReq({ label: "bad\nname" }), a);
+  assert.equal(got.label, "bad name");
+  await run("/voice/session/start", makeReq({ label: 5 }), a);
+  assert.equal(got.label, "");
+});

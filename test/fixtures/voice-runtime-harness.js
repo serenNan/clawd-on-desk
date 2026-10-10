@@ -66,6 +66,7 @@ function makeHarness({ brain = "session", voice = {}, runtimeOptions = {}, fallb
     onCue: (name) => rec.cues.push(name),
     setTimeout: clock.setTimeout,
     clearTimeout: clock.clearTimeout,
+    now: clock.now,
     ...runtimeOptions,
   });
   return { runtime, rec, clock };

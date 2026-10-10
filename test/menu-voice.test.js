@@ -149,6 +149,23 @@ describe("context and tray menu voice entry", () => {
     assert.deepStrictEqual(calls, ["pause", "pause"]);
   });
 
+  it("during a call a disabled row names the Claude session that drives it", () => {
+    const initMenu = loadMenuWithElectron(fakeElectron());
+    const ctx = buildBaseCtx({
+      getVoiceMenuState: () => ({ enabled: true, active: true, ownerLabel: "clawd-on-desk·a1b2c3" }),
+      toggleVoice: () => {},
+      toggleVoicePause: () => {},
+    });
+    initMenu(ctx).buildContextMenu();
+    const row = ctx.contextMenu.template.find((i) => /clawd-on-desk·a1b2c3/.test(i.label || ""));
+    assert.ok(row, "owner row present");
+    assert.strictEqual(row.enabled, false);
+    assert.match(row.label, /Voice driven by/);
+    const none = buildBaseCtx({ getVoiceMenuState: () => ({ enabled: true, active: true, ownerLabel: null }), toggleVoice: () => {}, toggleVoicePause: () => {} });
+    initMenu(none).buildContextMenu();
+    assert.ok(!none.contextMenu.template.some((i) => /driven by/i.test(i.label || "")));
+  });
+
   it("no pause entry without a live call", () => {
     const initMenu = loadMenuWithElectron(fakeElectron());
     const ctx = buildBaseCtx({ getVoiceMenuState: () => ({ enabled: true, active: false }), toggleVoice: () => {}, toggleVoicePause: () => {} });

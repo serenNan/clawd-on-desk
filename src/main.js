@@ -2548,12 +2548,22 @@ function getVoiceMain() {
     getPetWebContents: () => (
       win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed() ? win.webContents : null
     ),
+    muteHelperPath: app.isPackaged
+      ? path.join(process.resourcesPath, "bin", "clawd-mute-helper")
+      : path.join(__dirname, "..", "build", "bin", "clawd-mute-helper"),
     debugLog: require("./voice-debug-log").createVoiceDebugLog({ filePath: path.join(app.getPath("userData"), "voice-debug.log") }),
     getVoice: () => _settingsController.get("voice"),
     applyVoiceUpdate: (next) => _settingsController.applyUpdate("voice", next),
     systemPreferences,
     isMiniTransitioning: () => _mini.getMiniTransitioning(),
     setVoiceOverlay: (name) => _state.setVoiceOverlay(name),
+    t: (key) => translate(key),
+    captionWindow: require("./voice-caption-window").createVoiceCaptionWindow({
+      BrowserWindow, screen,
+      getPetBounds: () => (win && !win.isDestroyed() ? win.getBounds() : null),
+      preloadPath: path.join(__dirname, "preload-voice-caption.js"),
+      htmlPath: path.join(__dirname, "voice-caption.html"),
+    }),
     playCue: require("./voice-cue").createVoiceCue({
       send: (channel, payload) => sendToRenderer(channel, payload),
       getCueEnabled: () => (_settingsController.get("voice") || {}).cueEnabled !== false,
@@ -2568,6 +2578,7 @@ function getVoiceMain() {
       createEdgeTts: (o) => require("./voice-tts-edge").createEdgeTts(o),
       createAliyunStt: (o) => require("./voice-stt-aliyun").createAliyunStt(o),
       createAliyunTts: (o) => require("./voice-tts-aliyun").createAliyunTts(o),
+      createSummarizer: (o) => require("./voice-summarize").createSummarizer(o),
       createClaudeBrain: (o) => require("./voice-brain-claude").createClaudeBrain(o),
       sherpaStatus: () => {
         const models = require("./voice-models");
@@ -3067,8 +3078,8 @@ const _serverCtx = {
   recordWindowsProcessChainShadow: (record) => recordWindowsProcessChainShadow(record),
   // Claude Code session voice mode (/voice/*): voice-main is created lazily.
   voiceSession: {
-    sessionStart: () => getVoiceMain().sessionStart(),
-    sessionStop: () => getVoiceMain().sessionStop(),
+    sessionStart: (opts) => getVoiceMain().sessionStart(opts),
+    sessionStop: (opts) => getVoiceMain().sessionStop(opts),
     converse: (opts) => getVoiceMain().converse(opts),
   },
   isAgentEnabled: (agentId) => _runtimeAgentGate.isAgentEnabled(agentId),
@@ -4591,6 +4602,7 @@ const _menuCtx = {
     enabled: !!(_settingsController.get("voice") || {}).enabled,
     active: !!(voiceMain && voiceMain.getState().active),
     paused: !!(voiceMain && voiceMain.getState().paused),
+    ownerLabel: voiceMain ? voiceMain.getState().ownerLabel : null,
   }),
   toggleVoice: () => { void getVoiceMain().toggle(); },
   toggleVoicePause: () => { void getVoiceMain().togglePause(); },

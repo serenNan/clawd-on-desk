@@ -1,12 +1,14 @@
 "use strict";
 
+const { randomUUID } = require("node:crypto");
 const { createVoiceRuntime } = require("./voice-runtime");
 const { createSessionBrain } = require("./voice-brain-session");
 const { registerVoiceIpc, createVoicePermissionPolicy } = require("./voice-ipc");
+const { createCaptureHelper } = require("./voice-capture-helper");
 const { errorFields } = require("./voice-debug-log");
 const { resolveVoiceReadiness, normalizeVoice, DASHSCOPE_KEY_ENV } = require("./voice-settings");
 
-const OVERLAY_BY_PHASE = Object.freeze({ listening: "listening", thinking: "thinking", speaking: "speaking", paused: "paused" });
+const OVERLAY_BY_PHASE = Object.freeze({ listening: "listening", thinking: "voiceThinking", speaking: "speaking", paused: "paused" });
 const PROVIDER_KEYS = ["stt", "tts", "brain", "ttsVoice", "ttsVoiceId", "localTtsVoice", "edgeVoice", "endSilenceMs", "ttsSpeed", "claudePath"];
 const USER_NOTICES = new Set(["aec-unavailable", "fallback-local-stt", "fallback-local-tts", "reply-too-long", "segment_truncated"]);
 
@@ -15,7 +17,8 @@ const USER_NOTICES = new Set(["aec-unavailable", "fallback-local-stt", "fallback
 function createVoiceMain(deps) {
   const {
     ipcMain, getPetWebContents, getVoice, applyVoiceUpdate, systemPreferences,
-    isMiniTransitioning, setVoiceOverlay, playCue, notify, confirmCloudConsent, factories,
+    isMiniTransitioning, setVoiceOverlay, playCue, notify, confirmCloudConsent, factories, t, captionWindow,
+    muteHelperPath,
   } = deps;
   const env = deps.env || process.env;
   const platform = deps.platform || process.platform;
@@ -24,6 +27,8 @@ function createVoiceMain(deps) {
   let ipc = null;
   let startedWith = null;
   let pendingNotice = null; // shown only once the call actually starts
+  let ownerLabel = null; // shown in the menu: which Claude session drives the call
+  let sessionOwner = null; // token of the one Claude session allowed to drive the call; newest start wins
   let brainOverride = null; // "session" while started via the /voice/session HTTP API; never persisted
 
   // Local streaming stack (sherpa-onnx STT + Silero VAD). Missing models or a
@@ -77,8 +82,22 @@ function createVoiceMain(deps) {
     };
   }
 
+  // Bundled recorder (voice.airpodsMuteCapture): records the mic and receives AirPods stem presses.
+  // Failures fall back to renderer capture (runtime.captureFailed); `runtime` is assigned below.
+  let runtime = null;
+  let helperSwitch = true; // voice.airpodsMuteCapture as of the last start / settings change
+  const capHelper = createCaptureHelper({
+    platform, osRelease: deps.osRelease, binPath: muteHelperPath, spawn: deps.spawnMuteHelper, existsSync: deps.existsSync, log,
+    getPaused: () => !!(runtime && runtime.getState().paused),
+    setPaused: (v, o) => { if (runtime) runtime.setPaused(v, o); },
+    getDeviceLabel: () => normalizeVoice(getVoice()).micLabel,
+    onPcm: (buf) => { if (runtime) runtime.handleAudio(buf, "helper"); },
+    onFallback: (reason) => { if (runtime) runtime.captureFailed(reason); },
+  });
+
   function onStateChange(state) {
-    if (!state.active) brainOverride = null;
+    capHelper.syncPaused(state.paused);
+    if (!state.active) { brainOverride = null; sessionOwner = null; ownerLabel = null; }
     setVoiceOverlay(OVERLAY_BY_PHASE[state.phase] || null);
     if (state.phase === "error" && state.error && state.error !== lastErrorShown) {
       lastErrorShown = state.error;
@@ -87,15 +106,26 @@ function createVoiceMain(deps) {
     if (state.phase !== "error") lastErrorShown = null;
   }
 
-  const runtime = createVoiceRuntime({
+  const summarizer = factories.createSummarizer
+    ? factories.createSummarizer({ getClaudePath: () => normalizeVoice(getVoice()).claudePath, env, log })
+    : null;
+
+  runtime = createVoiceRuntime({
     getVoice: () => normalizeVoice(brainOverride ? { ...getVoice(), brain: brainOverride } : getVoice()),
     env,
     createProviders: buildProviders,
     sendToRenderer: (channel, payload) => {
       if (channel === "voice:notice" && payload && USER_NOTICES.has(payload.code)) notify(payload.code);
+      // Captions live in their own window next to the pet (never in logs); end of call wipes them.
+      if (channel === "voice:caption") { if (captionWindow) captionWindow.show(payload); return; }
+      if (channel === "voice:stop" && captionWindow) captionWindow.clear();
       ipc.sendToRenderer(channel, payload);
     },
     onStateChange,
+    canHelperCapture: () => helperSwitch && capHelper.supported(),
+    onCaptureSource: (src) => { if (src === "helper") capHelper.start(); else capHelper.stop(); },
+    onHelperSilent: () => capHelper.restart("silent"),
+    summarize: summarizer ? (text) => summarizer.summarize(text) : null,
     onCue: (name) => { if (playCue) playCue(name); },
     log,
   });
@@ -103,7 +133,9 @@ function createVoiceMain(deps) {
   if (typeof ipcMain.handle === "function") {
     ipcMain.handle("voice:models-status", () => (factories.sherpaStatus ? factories.sherpaStatus() : { ready: false, missing: [] }));
   }
-  ipc = registerVoiceIpc({ ipcMain, runtime, getTrustedWebContents: getPetWebContents, log: deps.debugLog });
+  let micDevices = [];
+  if (typeof ipcMain.handle === "function") ipcMain.handle("voice:mic-devices-list", () => micDevices);
+  ipc = registerVoiceIpc({ ipcMain, runtime, getTrustedWebContents: getPetWebContents, log: deps.debugLog, onMicDevices: (list) => { micDevices = list; } });
   log("module_loaded", { platform });
   const permissionPolicy = createVoicePermissionPolicy({
     getTrustedWebContents: getPetWebContents,
@@ -147,6 +179,7 @@ function createVoiceMain(deps) {
       return { status: "error", reasons: ["mic-denied"] };
     }
     startedWith = normalizeVoice(getVoice());
+    helperSwitch = startedWith.airpodsMuteCapture;
     const res = await runtime.start();
     if (res.status !== "ok") notify(res.reasons[0]);
     else {
@@ -160,23 +193,40 @@ function createVoiceMain(deps) {
   function stop(reason) { runtime.stop(reason); }
 
   // Claude Code session mode (/voice/session/*): the external session is the brain.
-  async function sessionStart() {
+  const TAKEN_OVER = Object.freeze({ ended: true, reason: "taken_over" });
+
+  async function sessionStart({ label } = {}) {
     const t0 = Date.now();
     const st = runtime.getState();
-    if (st.active && st.sessionMode) return { status: "ok", already: true };
+    if (st.active && st.sessionMode) {
+      sessionOwner = randomUUID();
+      ownerLabel = label || null;
+      runtime.takeOver();
+      log("session_api_start", { status: "ok", takeover: true, ms: Date.now() - t0 });
+      return { status: "ok", already: true, owner: sessionOwner };
+    }
     if (st.active) stop("session-switch");
     brainOverride = "session";
     const res = await start();
     if (res.status !== "ok") brainOverride = null;
+    else { sessionOwner = randomUUID(); ownerLabel = label || null; }
     log("session_api_start", { status: res.status, reasons: (res.reasons || []).join(","), ms: Date.now() - t0 });
-    return res;
+    return res.status === "ok" ? { ...res, owner: sessionOwner } : res;
   }
 
-  async function sessionStop() {
+  async function sessionStop({ owner } = {}) {
     const st = runtime.getState();
-    log("session_api_stop", { wasActive: !!(st.active && st.sessionMode) });
+    const mine = !!sessionOwner && owner === sessionOwner;
+    log("session_api_stop", { wasActive: !!(st.active && st.sessionMode), ignored: !!(st.active && !mine) });
+    if (st.active && st.sessionMode && !mine) return { status: "ok", ignored: true, reason: "taken_over" };
     if (st.active && st.sessionMode) stop("session-api");
     return { status: "ok" };
+  }
+
+  function converse({ owner, ...opts } = {}) {
+    const st = runtime.getState();
+    if (st.active && st.sessionMode && (!sessionOwner || owner !== sessionOwner)) return Promise.resolve({ ...TAKEN_OVER });
+    return runtime.converse(opts);
   }
 
   // Pause / resume the mic of a live call (shortcut, menu). No call: behaves like toggle().
@@ -187,32 +237,51 @@ function createVoiceMain(deps) {
     return { status: "ok", paused: runtime.getState().paused };
   }
 
+  // Hotkey / menu / Alt+click never open the mic for a call that no Claude Code
+  // session asked for: the only exception is the advanced brain=claude-code setting.
+  async function userStart() {
+    if (normalizeVoice(getVoice()).brain === "claude-code") return start();
+    log("start_needs_session");
+    if (playCue) playCue("end");
+    if (captionWindow) captionWindow.show({ role: "hint", text: t ? t("voiceNeedSession") : "" });
+    return { status: "needs-session" };
+  }
+
   return {
-    async shortcutToggle() { return runtime.getState().active ? togglePause() : start(); },
+    async shortcutToggle() { return runtime.getState().active ? togglePause() : userStart(); },
     togglePause,
     async toggle() {
       if (runtime.getState().active) { stop("user"); return { status: "ok", ended: true }; }
-      return start();
+      return userStart();
     },
     start,
     stop,
     sessionStart,
     sessionStop,
-    converse: runtime.converse,
-    getState: runtime.getState,
+    converse,
+    getState: () => ({ ...runtime.getState(), ownerLabel }),
     permissionPolicy,
     onSettingsChanged(next) {
       if (!runtime.getState().active) return;
       const v = normalizeVoice(next);
       const changed = PROVIDER_KEYS.some((k) => v[k] !== (startedWith || v)[k]);
+      const micChanged = !!startedWith && (v.micDeviceId !== startedWith.micDeviceId || v.micLabel !== startedWith.micLabel);
       if (!v.enabled) stop("disabled");
       else if (changed) stop("settings-changed");
+      else if (micChanged) {
+        startedWith = { ...startedWith, micDeviceId: v.micDeviceId, micLabel: v.micLabel };
+        runtime.selectMic({ micDeviceId: v.micDeviceId, micLabel: v.micLabel });
+        capHelper.setDevice(v.micLabel);
+      }
+      if (v.enabled && !changed && v.airpodsMuteCapture !== helperSwitch) { helperSwitch = v.airpodsMuteCapture; runtime.refreshCapture(); }
     },
     onLifecycle(event) { stop(event); },
     dispose() {
       stop("dispose");
+      capHelper.stop();
       ipc.dispose();
-      if (typeof ipcMain.removeHandler === "function") ipcMain.removeHandler("voice:models-status");
+      if (captionWindow) captionWindow.dispose();
+      if (typeof ipcMain.removeHandler === "function") { ipcMain.removeHandler("voice:models-status"); ipcMain.removeHandler("voice:mic-devices-list"); }
     },
   };
 }

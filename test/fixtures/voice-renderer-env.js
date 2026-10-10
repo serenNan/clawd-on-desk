@@ -3,11 +3,11 @@
 // Renderer test rig: fake mic/context/worklet/sink and a manual clock.
 const { createVoiceRenderer } = require("../../src/voice-renderer");
 
-function makeEnv({ settings = { echoCancellation: true }, denyMic = false } = {}) {
+function makeEnv({ settings = { echoCancellation: true }, denyMic = false, devices = null } = {}) {
   const calls = [];
   const timers = [];
   let t = 0;
-  const mkTrack = () => ({ stopped: false, stop() { this.stopped = true; }, getSettings: () => settings, kind: "audio" });
+  const mkTrack = (label) => ({ label, stopped: false, stop() { this.stopped = true; }, getSettings: () => settings, kind: "audio" });
   const track = mkTrack();
   const tracks = [track];
   const mkStream = (t) => ({ getTracks: () => [t], getAudioTracks: () => [t] });
@@ -42,7 +42,18 @@ function makeEnv({ settings = { echoCancellation: true }, denyMic = false } = {}
   };
   env.renderer = createVoiceRenderer({
     api,
-    getUserMedia: async (c) => { calls.push(["getUserMedia", c]); if (denyMic) throw Object.assign(new Error("denied"), { name: "NotAllowedError" }); if (tracks.length === 1 && calls.filter((x) => x[0] === "getUserMedia").length === 1) return mkStream(track); const t = mkTrack(); tracks.push(t); return mkStream(t); },
+    getUserMedia: async (c) => {
+      calls.push(["getUserMedia", c]);
+      if (denyMic) throw Object.assign(new Error("denied"), { name: "NotAllowedError" });
+      const id = c.audio && c.audio.deviceId && c.audio.deviceId.exact;
+      const dev = id && (devices || []).find((d) => d.deviceId === id);
+      if (id && !dev) throw Object.assign(new Error("gone"), { name: "OverconstrainedError" });
+      const def = !id && (devices || []).find((d) => d.deviceId === "default");
+      const label = dev ? dev.label : def ? def.label : "Default"; // no constraint = the current system default
+      if (tracks.length === 1 && calls.filter((x) => x[0] === "getUserMedia").length === 1) { track.label = label; return mkStream(track); }
+      const t = mkTrack(label); tracks.push(t); return mkStream(t);
+    },
+    enumerateDevices: devices ? async () => devices : undefined,
     createContext: () => ctx,
     createWorkletNode: () => node,
     createSink: (_ctx, handlers) => { sink.handlers = handlers; return sink; },

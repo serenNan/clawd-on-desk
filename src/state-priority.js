@@ -21,9 +21,10 @@ const STATE_PRIORITY = Object.freeze({
   sleeping: 0,
 });
 
-// Runtime-only voice overlay (never a session state): listening/speaking/paused sit
-// just above working (paused reuses the sleeping art); waiting-on-the-brain reuses the thinking visual.
-const VOICE_STATE_PRIORITY = Object.freeze({ listening: 3.5, speaking: 3.5, thinking: 2.5, paused: 3.5 });
+// Runtime-only voice overlay (never a session state). A live call outranks ordinary coding
+// states (working/juggling/carrying: 4) so it stays visible mid-task, but yields to attention,
+// sweeping, permission (notification) and error. Paused reuses the sleeping art; voiceThinking (waiting on the brain) has its own art and falls back to the thinking art.
+const VOICE_STATE_PRIORITY = Object.freeze({ listening: 4.5, speaking: 4.5, voiceThinking: 4.5, paused: 4.5 });
 
 const ONESHOT_STATE_NAMES = ["attention", "error", "sweeping", "notification", "carrying"];
 

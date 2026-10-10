@@ -174,3 +174,6 @@ Microsoft/
 
 # Emoji export scratch
 clawd-emoji-final/
+
+# AirPods mute helper build output (scripts/build-mute-helper.js)
+build/bin/

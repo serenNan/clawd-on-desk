@@ -14,8 +14,8 @@
     ["aliyun-paraformer", "voiceSttAliyun"],
   ];
   const BRAIN_OPTIONS = [
-    ["claude-code", "voiceBrainClaude"],
     ["session", "voiceBrainSession"],
+    ["claude-code", "voiceBrainClaude"],
   ];
   const TTS_OPTIONS = [
     ["edge", "voiceTtsEdge"],
@@ -31,9 +31,12 @@
   ];
   const END_SILENCE_CHOICES = [400, 600, 800, 1000, 1200, 1500];
   const DEFAULTS = {
-    enabled: false, brain: "claude-code", stt: "sherpa-onnx", tts: "edge", edgeVoice: "zh-CN-XiaoxiaoNeural", endSilenceMs: 800,
-    cloudConsent: false, ttsVoice: "longanyang", ttsVoiceId: "", localFallback: false, claudePath: "",
+    enabled: false, brain: "session", stt: "sherpa-onnx", tts: "edge", edgeVoice: "zh-CN-XiaoxiaoNeural", endSilenceMs: 800,
+    cloudConsent: false, ttsVoice: "longanyang", ttsVoiceId: "", localFallback: false, captions: true, airpodsMuteCapture: true, claudePath: "",
+    micDeviceId: "", micLabel: "",
   };
+  let micDevices = []; // audioinput entries from enumerateDevices (labels need a prior mic grant)
+  let micWatching = false;
 
   const t = (key) => helpers.t(key);
   const current = () => ({ ...DEFAULTS, ...((state.snapshot && state.snapshot.voice) || {}) });
@@ -126,6 +129,44 @@
     return makeRow(labelKey, descKey, wrap).row;
   }
 
+  function refreshMics() {
+    const md = root.navigator && root.navigator.mediaDevices;
+    const first = !micWatching;
+    micWatching = true;
+    if (!md || !md.enumerateDevices) return;
+    if (first && md.addEventListener) md.addEventListener("devicechange", refreshMics);
+    const own = Promise.resolve(md.enumerateDevices()).catch(() => []);
+    const cached = Promise.resolve(window.settingsAPI && window.settingsAPI.getVoiceMics ? window.settingsAPI.getVoiceMics() : []).catch(() => []);
+    Promise.all([own, cached]).then(([list, cache]) => {
+      const mine = (list || []).filter((d) => d.kind === "audioinput" && d.deviceId && d.deviceId !== "default" && d.deviceId !== "communications");
+      micDevices = mine.length && mine.every((d) => d.label) ? mine : (cache && cache.length ? cache : mine);
+      ops.requestRender({ content: true });
+    });
+  }
+
+  // Value = deviceId; the saved choice stays listed even when unplugged/unlabeled.
+  function micRow(v) {
+    const holder = document.createElement("div");
+    const unlabeled = micDevices.length === 0 || micDevices.some((d) => !d.label);
+    const { row } = makeRow("voiceMicLabel", "voiceMicDesc", holder);
+    const items = [{ value: "", label: t("voiceMicDefault"), label0: "" }];
+    micDevices.forEach((d, i) => items.push({ value: d.deviceId, label: d.label || `${t("voiceMicLabel")} ${i + 1}`, label0: d.label }));
+    if (v.micDeviceId && !items.some((o) => o.value === v.micDeviceId)) items.push({ value: v.micDeviceId, label: v.micLabel || v.micDeviceId, label0: v.micLabel });
+    const picker = helpers.buildSettingsSelect({
+      value: v.micDeviceId || "",
+      options: items.map(({ value, label }) => ({ value, label })),
+      ariaLabel: t("voiceMicLabel"),
+      viewportPlacement: "down",
+      onChange: (next) => {
+        if (next === (v.micDeviceId || "")) return true;
+        const hit = items.find((o) => o.value === next);
+        return save({ micDeviceId: next, micLabel: (hit && hit.label0) || "" }).then(() => true);
+      },
+    });
+    holder.appendChild(picker.element);
+    return [row].concat(unlabeled ? [note("voiceMicNoLabels")] : []);
+  }
+
   function note(textKey) {
     const p = document.createElement("p");
     p.className = "subtitle";
@@ -150,6 +191,7 @@
 
   function render(parent) {
     const v = current();
+    if (!micWatching) refreshMics();
     const h1 = document.createElement("h1");
     h1.textContent = t("voiceTitle");
     parent.appendChild(h1);
@@ -159,11 +201,14 @@
       switchRow("voiceEnabledLabel", "voiceEnabledDesc", "enabled"),
     ]));
     parent.appendChild(helpers.buildSection(t("voiceSectionProviders"), [
+      ...micRow(v),
       selectRow("voiceBrainLabel", "brain", BRAIN_OPTIONS),
       selectRow("voiceSttLabel", "stt", STT_OPTIONS),
       selectRow("voiceTtsLabel", "tts", TTS_OPTIONS),
       ...(v.tts === "edge" ? [selectRow("voiceEdgeVoiceLabel", "edgeVoice", EDGE_VOICES)] : []),
       selectRow("voiceEndSilenceLabel", "endSilenceMs", END_SILENCE_CHOICES.map((ms) => [ms, `${ms} ms`]), { descKey: "voiceEndSilenceDesc", parse: Number }),
+      switchRow("voiceCaptionsLabel", "voiceCaptionsDesc", "captions"),
+      switchRow("voiceAirpodsLabel", "voiceAirpodsDesc", "airpodsMuteCapture"),
       switchRow("voiceLocalFallbackLabel", "voiceLocalFallbackDesc", "localFallback", { disabled: !isCloud(v) && v.stt !== "sherpa-onnx" }),
     ].concat(sherpaStatusNote(v) || [])));
     if (isCloud(v)) {

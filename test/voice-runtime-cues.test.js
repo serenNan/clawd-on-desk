@@ -75,3 +75,12 @@ test("the TTS provider is warmed on start and disposed on stop", async () => {
   h.runtime.stop("user");
   assert.equal(h.rec.disposed, 1);
 });
+
+test("a stem press (system already chimes) toggles pause without our cue", async () => {
+  const h = makeHarness();
+  await h.runtime.start();
+  h.runtime.setPaused(true, { cue: false });
+  h.runtime.setPaused(false, { cue: false });
+  assert.deepEqual(h.rec.cues, ["start"]);
+  assert.equal(h.runtime.snapshot ? h.runtime.snapshot().paused : false, false);
+});

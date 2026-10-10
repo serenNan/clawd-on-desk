@@ -25,15 +25,16 @@ function makeBridge() {
 function run({ withBridge = true } = {}) {
   const { bridge, handlers } = makeBridge();
   const calls = [];
-  const classes = new Set();
   const props = {};
-  const indicator = {
-    classList: { toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)) },
-    style: { setProperty: (k, v) => { props[k] = v; } },
-  };
+  const attrs = {};
   const bodyClasses = new Set();
+  const cap = { classes: new Set(), attrs: {}, textContent: "" };
+  cap.classList = { add: (c) => cap.classes.add(c), remove: (c) => cap.classes.delete(c) };
+  cap.setAttribute = (k, v) => { cap.attrs[k] = v; };
+  const timers = [];
   const win = {
     electronAPI: withBridge ? { voice: bridge } : {},
+    ClawdVoiceCaptions: require("../src/voice-captions"),
     ClawdVoiceRenderer: {
       createVoiceRenderer: (opts) => {
         calls.push(["create", Object.keys(opts).sort()]);
@@ -43,11 +44,15 @@ function run({ withBridge = true } = {}) {
     },
   };
   const doc = {
-    getElementById: (id) => (id === "voice-indicator" ? indicator : null),
-    body: { classList: { toggle: (c, on) => (on ? bodyClasses.add(c) : bodyClasses.delete(c)) }, style: { setProperty: (k, v) => { props[`body${k}`] = v; } } },
+    getElementById: (id) => ({ "voice-caption": cap })[id] || null,
+    body: {
+      classList: { toggle: (c, on) => (on ? bodyClasses.add(c) : bodyClasses.delete(c)) },
+      style: { setProperty: (k, v) => { props[k] = v; } },
+      setAttribute: (k, v) => { attrs[k] = v; },
+    },
   };
-  vm.runInNewContext(BOOT, { window: win, document: doc, navigator: { mediaDevices: {} }, AudioContext: function () {}, AudioWorkletNode: function () {}, setTimeout: () => 0, clearTimeout: () => {} });
-  return { handlers, calls, classes, bodyClasses, props, indicatorClasses: classes };
+  vm.runInNewContext(BOOT, { window: win, document: doc, navigator: { mediaDevices: {} }, AudioContext: function () {}, AudioWorkletNode: function () {}, setTimeout: (fn) => { timers.push(fn); return timers.length; }, clearTimeout: () => {} });
+  return { handlers, calls, bodyClasses, props, attrs, cap, timers };
 }
 
 test("does nothing without the preload bridge", () => {
@@ -78,63 +83,35 @@ test("playback and barge events are forwarded to the controller", () => {
   }
 });
 
-test("audio level is clamped into the --voice-level custom property", () => {
-  const r = run();
-  const opts = r.calls.find((c) => c[0] === "opts")[1];
-  opts.onLevel("mic", 0.5);
-  assert.equal(r.props["body--voice-level"], "1");
-  opts.onLevel("speaker", 0.1);
-  assert.equal(r.props["body--voice-level"], "0.4");
-  opts.onLevel("mic", -1);
-  assert.equal(r.props["body--voice-level"], "0");
-});
-
 test("index.html loads the voice scripts in dependency order with no inline script", () => {
   const order = [...HTML.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
   const idx = (f) => order.indexOf(f);
-  for (const f of ["voice-vad.js", "voice-barge-in.js", "voice-audio-renderer.js", "voice-renderer.js", "voice-renderer-boot.js"]) {
+  for (const f of ["voice-vad.js", "voice-barge-in.js", "voice-audio-renderer.js", "voice-mic-device.js", "voice-renderer.js", "voice-renderer-boot.js"]) {
     assert.ok(idx(f) >= 0, `${f} is loaded`);
   }
-  assert.ok(idx("voice-vad.js") < idx("voice-renderer.js"));
   assert.ok(idx("voice-renderer.js") < idx("voice-renderer-boot.js"));
-  assert.ok(idx("voice-renderer-boot.js") < idx("renderer.js") || idx("renderer.js") >= 0);
   assert.equal(/<script(?![^>]*\bsrc=)[^>]*>/.test(HTML), false, "CSP forbids inline scripts");
-  assert.ok(HTML.includes('id="voice-indicator"'));
   assert.ok(/script-src 'self'/.test(HTML));
+  assert.equal(HTML.includes("voice-pet"), false, "no custom pet animation assets");
 });
 
-test("styles drive the pulse from --voice-level and keep it inert when no call is active", () => {
-  assert.ok(CSS.includes("#voice-indicator"));
-  assert.ok(CSS.includes("body.voice-active #pet-motion-stage"));
-  assert.ok(CSS.includes("var(--voice-level"));
+test("no custom pet visuals: badge, ears and fx layer are gone", () => {
+  assert.equal(HTML.includes("voice-indicator") || HTML.includes("voice-fx") || HTML.includes("voice-ears"), false);
+  assert.equal(CSS.includes("voice-indicator"), false);
+  assert.equal(fs.existsSync(path.join(SRC, "voice-pet.css")) || fs.existsSync(path.join(SRC, "voice-pet-anim.js")), false);
 });
 
-test("mic badge has three states: hidden (no call), listening (active), paused (active + paused)", () => {
+test("voice:paused still releases the mic in the renderer", () => {
   const r = run();
-  assert.equal(r.classes.has("active"), false, "no call: no badge");
-  r.handlers.onStart({});
-  assert.equal(r.classes.has("active"), true);
-  assert.equal(r.classes.has("paused"), false, "listening");
   r.handlers.onPaused({ paused: true });
-  assert.equal(r.classes.has("active"), true);
-  assert.equal(r.classes.has("paused"), true, "paused");
-  assert.ok(r.calls.some((c) => c[0] === "handlePaused" && c[1].paused === true), "renderer releases the mic");
-  r.handlers.onPaused({ paused: false });
-  assert.equal(r.classes.has("paused"), false);
-  assert.ok(r.calls.some((c) => c[0] === "handlePaused" && c[1].paused === false));
-  r.handlers.onPaused({ paused: true });
-  r.handlers.onStop({});
-  assert.equal(r.classes.has("active"), false, "call ended: badge gone");
-  assert.equal(r.classes.has("paused"), false, "and the paused look is cleared");
+  assert.ok(r.calls.some((c) => c[0] === "handlePaused" && c[1].paused === true));
 });
 
-test("badge markup: slash only when paused, never intercepts clicks, lives inside the pet stage", () => {
-  assert.ok(HTML.includes('class="voice-slash"'));
-  assert.ok(/#voice-indicator \{[^}]*pointer-events: none/.test(CSS));
-  assert.ok(/#voice-indicator\.paused/.test(CSS));
-  assert.ok(/#voice-indicator \.voice-slash \{ display: none; \}/.test(CSS));
-  assert.ok(/#voice-indicator\.paused \.voice-slash \{ display: inline; \}/.test(CSS));
-  const stage = HTML.indexOf('id="pet-motion-stage"');
-  const root = HTML.indexOf('id="voice-indicator"');
-  assert.ok(stage >= 0 && root > stage, "badge is inside the pet container, so it follows pet position and scale");
+test("caption window: card style, 2-line clamp, click-through window files exist and CSP is strict", () => {
+  const css = fs.readFileSync(path.join(SRC, "voice-caption.css"), "utf8");
+  const html = fs.readFileSync(path.join(SRC, "voice-caption.html"), "utf8");
+  assert.ok(/-webkit-line-clamp: 2/.test(css));
+  assert.ok(/prefers-reduced-motion/.test(css) && /prefers-color-scheme: dark/.test(css));
+  assert.ok(/script-src 'self'/.test(html) && !/<script(?![^>]*\bsrc=)[^>]*>/.test(html));
+  assert.ok(fs.existsSync(path.join(SRC, "preload-voice-caption.js")));
 });

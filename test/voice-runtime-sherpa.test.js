@@ -37,7 +37,7 @@ function makeHarness() {
     begin: () => ({ writeText() {}, finish() {}, cancel() {} }) };
   const brain = { id: "claude-code", probe: async () => ({ ok: true }), send(req) { rec.brainSends.push(req); }, cancel() {}, reset() {}, dispose() {} };
   const runtime = createVoiceRuntime({
-    getVoice: () => ({ ...cloneDefaultVoice(), tts: "local-kokoro", enabled: true }),
+    getVoice: () => ({ ...cloneDefaultVoice(), brain: "claude-code", tts: "local-kokoro", enabled: true }),
     env: {},
     createProviders: () => ({ stt, tts, brain, vad }),
     sendToRenderer: (channel, payload) => rec.sent.push({ channel, payload }),

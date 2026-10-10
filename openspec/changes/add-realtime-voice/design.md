@@ -253,8 +253,29 @@ Electron permission check/request handler 仅允许已登记可信 voice rendere
 
 **暂停收音（快捷键）**
 - `toggleVoice` 快捷键语义：无通话 → 开始；通话中 → 暂停/恢复收音（`voice-main.shortcutToggle`）。托盘/右键菜单在通话中多一项「暂停/恢复收音（已暂停）」；Alt+点击桌宠、菜单的开始/结束行为不变。
-- 暂停（runtime.setPaused）：取消进行中的 STT 并丢弃合并持有的文本；停止播放并取消 TTS/CLI 脑（epoch+1）；暂停期间 VAD/STT/barge-in 输入一律忽略；phase 为 `paused`（桌宠回到 idle，不显示 listening）；通话和待取 converse 不结束，converse 超时照常返回 `{timeout:true,paused:true}`；暂停期间 converse 的 text 直接丢弃不排队（选择更简单的一种，恢复后不补播）。麦克风流仍由 renderer 打开（系统麦克风指示灯不灭），主进程不处理其音频。
+- 静音（runtime.setPaused，快捷键与语音口令共用同一状态，2026-10 改版）：语义是「用户说话不再当输入」，不是关麦。播 end 提示音；不停播、不取消 TTS/CLI 脑、不推进 epoch；converse 的 text 照常合成播放，播完后继续等用户，超时返回 `{timeout:true,paused:true}`。phase 由 runtime 的 `wanted`（管线/桥请求的相位）推导：静音且非 speaking 时显示 `paused`（睡觉，避免卡在 thinking 图），播报时显示 `speaking`。恢复：播 start 提示音、650ms VAD 屏蔽。
+- 静音期间麦克风保持开启（橙点常亮）：renderer 只解除 barge-in（忽略 voice:vad/partial，reset 压低），采集链路和 track 不动，所以主进程全零检测与自愈照常；主进程继续跑 VAD+STT，但 `sttFor()` 只返回本地 STT（sherpa/whisper，云 STT 一律不用），识别结果只做唤醒词匹配（`voice-commands.isResumeCommand`），不发 partial/caption、不产生 user。
+- 语音口令（src/voice-commands.js，runtime 本地处理）：final 文本去标点及「请/先/吧/一下」等语气词后等于「静音」才静音（长句不触发）；静音期间 final 含「恢复语音」才恢复；播报回声（echoing）不触发；partial 里的口令不转发给 barge-in；日志只记 `voice_cmd_mute`/`voice_cmd_resume`。
+- 通话中跟随系统默认输入（voice-mic-device `createMicFollow`）：renderer 监听 `devicechange`，1s 防抖后重新上报设备列表；未指定设备且未暂停时，`default` 设备 label 与当前 track label（去 Default - 前缀）不一致则 `queueRestart({reason:"follow"})`，记 `r:mic_follow_default`；本通话失声设备不回跳。
 - CLI 脑模式同样适用同一暂停语义。
+
+### 11. AirPods 按柄静音：由随包 helper 自己录音（`voice.airpodsMuteCapture`，默认开）
+
+**为什么改**：实测按柄事件只发给真正在录音的进程；Electron 里录音的是 Chromium audio service 子进程，决定 10 里「helper 只注册回调、不录音」的版本收不到任何事件（系统弹「无法用 AirPods 控制麦克风」）。原型证明同一进程既录音又注册 `setInputMuteStateChangeHandler` 才收得到。所以开关打开时，由 helper 用 AVAudioEngine 采集并注册回调，renderer 不再 `getUserMedia`。
+
+**采集来源选择**（`src/voice-capture-source.js`，runtime 持有）：helper 需要同时满足 开关开、darwin、macOS ≥14（Darwin ≥23）、二进制存在、主进程有 Silero VAD（helper 只产出原始 PCM；非 sherpa STT 的 renderer-VAD 路径仍用 renderer 录音）。否则 `renderer`，完全走旧路径、不 spawn。来源写进 `voice:start.capture` 并记日志 `capture_source`。通话中改开关或 helper 放弃：`runtime.refreshCapture()` / `captureFailed()` 重新选择并发 `voice:capture`，renderer `handleCapture` 释放或重开 getUserMedia，通话不中断。
+
+**helper 协议**（`native/airpods-mute/clawd-mute-helper.swift`，`src/voice-capture-helper.js`，`src/voice-frame-protocol.js`）：
+- 音频走 stdout 二进制帧 `[0xCA 0xFE][uint16 LE 长度][payload]`，payload 为 16kHz 单声道 s16le、20ms=640 字节；解析器处理拆包/粘包，魔数不对视为协议错误并按崩溃重启。
+- 控制走 stderr JSON 行（`ready`、`capture{device,voiceProcessing,vpError,rate,channels,startMs}`、`mute`、`error`），与二进制分离，按行解析不会被污染；非 JSON 行（运行库警告）忽略。主进程 → helper 走 stdin：`{"set":b}` 同步系统静音、`{"device":label}` 切输入。
+- 采集：`setVoiceProcessingEnabled(true)` 做回声消除（失败则不带它重建一次，`vpError` 带回，日志 `helper_capture_started.voiceProcessing=false`）；其他应用的「压低音量」调到最小，避免压低桌宠自己的播报；取第 0 声道，AVAudioConverter 重采样到 16k s16le。
+- 设备：设置里指定了麦克风时按 label 规范化匹配（去 `Default - ` 前缀和括号后缀，相等或包含），匹配不上用系统默认；监听系统默认输入与设备列表变化，目标设备变了去抖 400ms 重建；`AVAudioEngineConfigurationChange` 也重建。
+
+**静音语义不变**：helper 回调返回 true 但不把音频置零，PCM 继续送主进程（本地 STT 听「恢复语音」，不产生 user）。三种静音（快捷键、口令、按柄）共用 runtime 的 `paused`；按柄经 helper 上报 `mute`，桌宠进入/退出 paused；paused 变化写 `{set}` 同步系统状态，防回环沿用（helper 只在状态真变时上报，主进程只在与 paused 不同时处理，ready 之前的 `mute` 一律忽略）。
+
+**自愈**：helper 退出、协议错误、或主进程全零检测（沿用 mic-watch，对 helper 来源改为请求 helper 重启）共用「同一通话最多 3 次重启」预算；超出后日志 `capture_fallback_renderer`，本次通话回退 renderer 录音（下次通话重新尝试 helper）。mic-watch 对 helper 来源放宽到第 4 次请求，让 helper 模块有机会判定超限并回退。
+
+**取舍与未测**：helper 录音比 Chromium 自带 AEC 多一层系统回声消除（VPIO），外放回声效果、VPIO 首次启动延迟（本机实测 3–8s，正式通话占着 AirPods 时测得，安静环境未测）需要真机验收；renderer 在 helper 模式下不枚举设备，设置页麦克风列表依赖缓存。
 
 ## Risks / Trade-offs
 

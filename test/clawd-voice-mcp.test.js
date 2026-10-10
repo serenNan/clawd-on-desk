@@ -128,3 +128,37 @@ test("notifications/cancelled aborts the in-flight pet request", async () => {
   assert.equal(aborted, true);
   assert.equal((await pending).result.isError, true);
 });
+
+test("owner token from voice_start rides on converse/stop and is hidden from the model", async () => {
+  let n = 0;
+  const pet = await fakePet((url) => (url === "/voice/session/start" ? { json: { status: "ok", owner: `tok-${++n}` } } : { json: { ended: true, reason: "taken_over" } }));
+  try {
+    const mcp = createMcpServer({ callPet: createPetClient({ ports: [pet.port] }).call });
+    const s = await mcp.handle(rpc(1, "tools/call", { name: "voice_start", arguments: {} }));
+    assert.deepEqual(parseText(s), { status: "ok" });
+    const c = await mcp.handle(rpc(2, "tools/call", { name: "voice_converse", arguments: { text: "x" } }));
+    assert.deepEqual(parseText(c), { ended: true, reason: "taken_over" });
+    await mcp.handle(rpc(3, "tools/call", { name: "voice_stop", arguments: {} }));
+    assert.equal(pet.seen[1].body.owner, "tok-1");
+    assert.equal(pet.seen[2].body.owner, "tok-1");
+    await mcp.handle(rpc(4, "tools/call", { name: "voice_start", arguments: {} }));
+    await mcp.handle(rpc(5, "tools/call", { name: "voice_converse", arguments: {} }));
+    assert.equal(pet.seen[4].body.owner, "tok-2", "a new start replaces the token");
+  } finally { pet.server.close(); }
+});
+
+test("voice_start reports which Claude session drives the call (project dir + short session id)", async () => {
+  const { sessionLabel } = require("../hooks/clawd-voice-mcp");
+  assert.equal(sessionLabel({ CLAUDE_PROJECT_DIR: "/Users/me/Projects/clawd-on-desk", CLAUDE_CODE_SESSION_ID: "a1b2c3d4-e5f6" }, "/ignored"), "clawd-on-desk·a1b2c3");
+  assert.equal(sessionLabel({}, "/Users/me/work/api"), "api");
+  assert.equal(sessionLabel({ CLAUDE_CODE_SESSION_ID: "bad id!" }, "/x/y"), "y");
+  assert.equal(sessionLabel({}, "/"), "");
+  const pet = await fakePet(() => ({ json: { status: "ok" } }));
+  try {
+    const mcp = createMcpServer({ callPet: createPetClient({ ports: [pet.port] }).call, env: { CLAUDE_PROJECT_DIR: "/a/proj" }, cwd: "/z" });
+    await mcp.handle(rpc(1, "tools/call", { name: "voice_start", arguments: {} }));
+    assert.equal(pet.seen[0].body.label, "proj");
+    await mcp.handle(rpc(2, "tools/call", { name: "voice_converse", arguments: { text: "x" } }));
+    assert.equal(pet.seen[1].body.label, undefined);
+  } finally { pet.server.close(); }
+});

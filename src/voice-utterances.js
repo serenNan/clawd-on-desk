@@ -56,13 +56,15 @@ function createUtterances(h) {
 
   return {
     count: () => utts.length,
+    canListen: () => !!h.sttFor(),
     begin() {
-      if (!h.isActive() || h.isPaused() || current()) return;
+      const stt = h.isActive() && !current() && h.sttFor();
+      if (!stt) return;
       h.onSpeechStart();
       const utt = { session: null, token: null, speechEnded: false, final: null, submitted: false, chunks: [], bytes: 0, startAt: Date.now(), partialSeen: false };
       utts.push(utt);
-      log("stt_begin", { provider: h.getProviders().stt.id });
-      bindStt(utt, h.getProviders().stt);
+      log("stt_begin", { provider: stt.id });
+      bindStt(utt, stt);
     },
     push(buf) {
       const utt = h.isActive() && current();

@@ -23,4 +23,8 @@ function isEchoText(text, spoken, { overlap = ECHO_OVERLAP } = {}) {
   return want.filter((p) => have.has(p)).length / want.length > overlap;
 }
 
-module.exports = { isEchoText, ECHO_OVERLAP };
+// The user speaks Chinese; background music with English lyrics transcribes
+// as pure Latin text and must not count as the user talking.
+const hasChinese = (text) => (String(text == null ? "" : text).match(/\p{Script=Han}/gu) || []).length >= 1;
+
+module.exports = { isEchoText, hasChinese, ECHO_OVERLAP };

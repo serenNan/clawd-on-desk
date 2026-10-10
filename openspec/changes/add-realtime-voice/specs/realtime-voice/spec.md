@@ -223,13 +223,32 @@
 - **WHEN** 第一段 final 后超过 600ms 才有新语音
 - **THEN** 第一段单独返回，第二段属于下一次 converse。
 
-### Requirement: 快捷键暂停与恢复收音
-`toggleVoice` 快捷键 SHALL 在无通话时开始通话，通话中（含会话模式与后台 CLI 模式）改为暂停/恢复收音而不结束通话。暂停时 SHALL 停止收音与 VAD/识别/打断、立即停止播报、丢弃暂停期间 converse 的 text；桌宠 SHALL 离开 listening 状态；待取 converse SHALL 不返回 `ended`，超时照常返回 `timeout`（带 `paused:true`）。再次按下 SHALL 恢复收音。菜单 SHALL 在通话中显示暂停/恢复项并体现已暂停状态，设置页文案 SHALL 说明该行为。
+### Requirement: 静音与恢复（快捷键与语音口令共用同一静音状态）
+`toggleVoice` 快捷键 SHALL 在无通话时开始通话，通话中（含会话模式与后台 CLI 模式）改为静音/恢复而不结束通话。静音 SHALL 只表示「用户说话不再当作输入」：播放 end 提示音，忽略 VAD 驱动的打断与用户输入、不送给会话、不产生 user；SHALL NOT 停止或打断正在进行的播报、SHALL NOT 推进 epoch；静音期间 converse 的 text SHALL 照常合成播放，已排队的句子播完。桌宠 SHALL 在播报时显示 speaking、不在播报时显示 paused（睡觉），不得停留在 thinking；待取 converse SHALL 不返回 `ended`，播完后继续等待，超时返回 `timeout`（带 `paused:true`）。恢复 SHALL 播放 start 提示音并保留 650ms VAD 屏蔽。菜单 SHALL 在通话中显示静音/恢复项并体现状态，设置页文案 SHALL 说明该行为。
 
-#### Scenario: 会话模式暂停
-- **WHEN** /clawd-voice 会话进行中按快捷键
-- **THEN** 麦克风输入被忽略、播报停止、桌宠不显示 listening，converse 不结束；再按一次恢复，下一句话正常返回。
+静音期间麦克风 SHALL 保持开启（系统麦克风指示常亮），音频 SHALL 只在本机识别且只用来匹配唤醒词「恢复语音」；云端 STT SHALL NOT 在静音期间使用（无本地 STT 时只能用快捷键恢复）。主进程全零检测在静音期间 SHALL 照常工作。
+
+用户说出整句基本就是口令的「静音」（去掉标点和「请/先/吧/一下」等语气词后等于「静音」）时 SHALL 进入静音；长句中带「静音」SHALL 作为普通输入。静音期间识别结果去掉标点后包含「恢复语音」SHALL 恢复，其他话一律丢弃。口令 SHALL 由 runtime 本地处理，不交给 Claude 会话；日志只记 `voice_cmd_mute` / `voice_cmd_resume` 事件、不记原文；播报内容回声 SHALL NOT 触发口令。快捷键静音可用口令恢复，口令静音可用快捷键恢复。
+
+#### Scenario: 会话模式静音
+- **WHEN** /clawd-voice 会话进行中按快捷键或说「静音」
+- **THEN** 正在进行的播报不被打断并播完，播报期间桌宠显示 speaking、否则 paused；静音中 converse 的 text 照常播放，converse 不结束（超时返回 `timeout`+`paused:true`）；说「恢复语音」或再按快捷键恢复，下一句话正常返回。
+
+#### Scenario: 长句带静音
+- **WHEN** 用户说「这个静音功能怎么样」
+- **THEN** 作为普通输入送给会话，不静音。
 
 #### Scenario: 无通话
 - **WHEN** 没有通话时按快捷键
 - **THEN** 与以前一样开始通话。
+
+### Requirement: 通话中跟随系统默认输入设备
+通话进行中 renderer SHALL 监听 `devicechange`：重新上报设备列表；偏好为系统默认（`micDeviceId` 为空）且未暂停时，若 `deviceId=default` 的设备 label 与当前采集 track 的 label 不一致，SHALL 只重建采集链路切到新的默认设备，通话不断，并记录 `r:mic_follow_default`。用户指定了具体设备时 SHALL NOT 自动跟随；事件 SHALL 做 1s 防抖；本通话已判定失声的设备 SHALL NOT 被跟随回去。
+
+#### Scenario: 通话中连上蓝牙耳机
+- **WHEN** 通话开始用内置麦克风，之后 AirPods 连上并成为系统默认输入
+- **THEN** 1s 内无新事件后采集切到 AirPods，设置页设备列表同步刷新。
+
+#### Scenario: 指定了设备
+- **WHEN** 用户在设置页指定了某个麦克风
+- **THEN** 系统默认变化时不切换。

@@ -201,8 +201,8 @@ describe("state-priority display selection", () => {
 describe("state-priority voice overlay", () => {
   const { VOICE_STATE_PRIORITY } = require("../src/state-priority");
 
-  it("defines listening/speaking above working and the waiting overlay above session thinking", () => {
-    assert.deepStrictEqual(VOICE_STATE_PRIORITY, { listening: 3.5, speaking: 3.5, thinking: 2.5, paused: 3.5 });
+  it("defines all voice states above working/juggling/carrying (4) and below attention (5)", () => {
+    assert.deepStrictEqual(VOICE_STATE_PRIORITY, { listening: 4.5, speaking: 4.5, voiceThinking: 4.5, paused: 4.5 });
     assert.strictEqual(Object.isFrozen(VOICE_STATE_PRIORITY), true);
     assert.ok(!("listening" in STATE_PRIORITY), "voice states are not session states");
   });
@@ -219,13 +219,16 @@ describe("state-priority voice overlay", () => {
     assert.strictEqual(resolveDisplayStateFromSessions([], { voiceState: "listening" }), "listening");
   });
 
-  it("the waiting overlay beats idle/thinking but not working", () => {
-    assert.strictEqual(resolveDisplayStateFromSessions([["a", session("idle")]], { voiceState: "thinking" }), "thinking");
-    assert.strictEqual(resolveDisplayStateFromSessions([["a", session("working")]], { voiceState: "thinking" }), "working");
+  it("every voice state beats coding states, including working/juggling/carrying", () => {
+    for (const v of ["listening", "speaking", "voiceThinking", "paused"]) {
+      for (const s of ["idle", "thinking", "working", "juggling", "carrying"]) {
+        assert.strictEqual(resolveDisplayStateFromSessions([["a", session(s)]], { voiceState: v }), v, `${v} over ${s}`);
+      }
+    }
   });
 
-  it("carrying/juggling/attention/error/notification/sweeping still win over voice", () => {
-    for (const s of ["juggling", "carrying", "attention", "sweeping", "notification", "error"]) {
+  it("attention/error/notification/sweeping still win over voice", () => {
+    for (const s of ["attention", "sweeping", "notification", "error"]) {
       assert.strictEqual(resolveDisplayStateFromSessions([["a", session(s)]], { voiceState: "speaking" }), s);
     }
   });

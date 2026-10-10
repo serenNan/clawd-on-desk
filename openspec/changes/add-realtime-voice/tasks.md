@@ -90,3 +90,52 @@
 - [x] 11.4 暂停真正关麦：红：test/voice-renderer-mic.test.js（暂停 stop track + 断开 source，恢复重新 getUserMedia 同约束，暂停中结束无残留）、test/voice-runtime-cues.test.js（voice:paused 下发）；绿：voice-renderer handlePaused、preload/boot/ipc。
 - [x] 11.5 暂停/恢复反馈：红：test/voice-cue.test.js、test/voice-runtime-cues.test.js（start/end 各自触发点、恢复后 650ms 屏蔽 VAD）、test/voice-main.test.js、test/state-voice-overlay.test.js（三主题 paused 显示 sleeping 美术）、test/voice-renderer-boot.test.js（常驻麦克风角标三态）；绿：assets/sounds/voice-start.wav|voice-end.wav（Cora 音效）、src/voice-cue.js（遵守 soundMuted/soundVolume/DND）、state overlay `paused`、index.html/styles.css 角标。
 - [ ] 11.6 真人验收：外放下长时间播报不再自降音；暂停后橙点熄灭、恢复后可再收音；提示音不被当成人声。
+
+## 12. 单会话独占、Edge 保活、字幕、长文摘要（每项先红→绿）
+
+- [x] 12.1 单会话驱动：红：test/voice-session-bridge.test.js（takeOver）、test/voice-main.test.js（新 start 换 owner token、旧 converse 即刻 `{ended:true,reason:"taken_over"}` 且 text 不播、旧 stop 被忽略）、test/server-route-voice.test.js、test/clawd-voice-mcp.test.js（MCP 保存并携带 token，不暴露给模型）；绿：voice-main sessionStart/sessionStop/converse、voice-runtime.takeOver、server-route-voice、hooks/clawd-voice-mcp.js，`~/.claude/commands/clawd-voice.md` 补 taken_over 处理（不再调 voice_stop）。
+- [x] 12.2 Edge 保活：红：test/voice-edge-conn.test.js（fake ws：20s ws ping、断线立即后台重连、快速断开/连不上按 1s/2s/4s 退避后放弃、idle 关闭放宽到 10 分钟）；绿：src/voice-edge-conn.js。
+- [x] 12.3 字幕气泡：红：test/voice-runtime-captions.test.js、test/voice-renderer-boot.test.js、test/voice-settings.test.js；绿：`voice.captions`（默认开）、`voice:caption`/`voice:state` 通道、src/voice-captions.js、设置页开关与 7 语言文案。文本只在渲染进程显示，不写日志。
+- [x] 12.4 桌宠动效：已被 13.1 取代（自制动效全部撤销）。
+- [x] 12.5 长文摘要：红：test/voice-summarize.test.js（fake CLI：禁工具/MCP/hooks、stdin 传文、超时/失败回退前两句并记 summarize_fallback、日志无文本）、test/voice-session-bridge.test.js、test/voice-runtime-session.test.js；绿：src/voice-summarize.js、`voice.summarizeOver`（默认 120，0 关闭）、bridge 返回 `played`+`summarized:true`。
+- [ ] 12.6 真机：双 owner 接管、listening/speaking/thinking/paused 截图、120s 无 edge_ws_drop 或断后立即重连、400 字摘要耗时（见 .local/handoff/voice-anim.md）。
+
+## 13. 只用自带动画、语音优先级、暂停修复、仅会话开启（每项先红→绿）
+
+- [x] 13.1 撤销自制动效：删 voice-pet-anim.js / voice-pet.css / 测试及 index.html、boot、preload、ipc 的 voice:state 接线；clawd 主题 listening=clawd-headphones-groove.svg、speaking=clawd-working-thinking.svg、等待大脑（新增可选主题状态 voiceThinking，不影响 coding 的 thinking）=clawd-idle-bubble.svg，paused 回退 sleeping；其他主题沿用原回退。测试：test/state-voice-overlay.test.js、test/voice-renderer-boot.test.js。
+- [x] 13.2 语音优先级 4.5（高于 working/juggling/carrying，低于 attention/sweeping/permission/error）：test/state-voice-overlay.test.js（coding 进行中仍显示语音状态；error、权限仍压过语音）；绿：src/state-priority.js。
+- [x] 13.3 暂停卡 speaking：红：test/voice-runtime-pause.test.js（播报中暂停→paused，之后 converse 超时等 phase 变化不得离开 paused）；绿：voice-runtime setPhase。
+- [x] 13.4 字幕与仅会话开启已在 12.x/本节前序落地并有测试（voice-caption-window、voice-main-session-only、menu-voice）。
+- [x] 13.5 真机验证（见 .local/handoff/voice-anim.md）。
+
+## 14. 设置页选麦克风、自愈取舍、track 结束即重开（每项先红→绿）
+
+- [x] 14.1 设置页麦克风下拉：红：test/voice-mic-select.test.js（设备匹配 id 命中 / label 回退 / 都不命中回默认并记 `mic_device_fallback`、getUserMedia 用 `deviceId:{exact}` 且 AEC/NS/AGC 不变、voice:start 携带 `micDeviceId`/`micLabel`）、test/settings-tab-voice.test.js（系统默认在首位、同时存 id+label、devicechange 刷新、无 label 提示）；绿：`voice.micDeviceId`/`voice.micLabel`（voice-settings）、src/settings-tab-voice.js、settings-i18n 7 语言、src/voice-mic-device.js `createMicOpener`/`resolvePreferred`。
+- [x] 14.2 通话中切换立即生效：红：test/voice-mic-select.test.js（只重建采集链路、ctx 与通话不断、未变化不重复下发）；绿：voice-main.onSettingsChanged -> runtime.selectMic -> `voice:mic-select`（ipc/preload/boot）-> renderer `handleMicSelect`。
+- [x] 14.3 自愈取舍：红：同上（label 含 iPhone/Continuity/Oray/ToDesk/BlackHole/Loopback/Virtual/Aggregate 一律跳过；指定设备时自愈只在该设备重开）；绿：voice-mic-device `isSkippable`/`pickAlternate`。
+- [x] 14.4 track ended 立即重开：红：test/voice-mic-select.test.js（不推进时钟即重建、每会话 track_ended 触发最多 3 次、主进程全零检测保留作兜底并在 1.5s 内不重复）；绿：voice-renderer `onTrackEnded`/`restartMic`。
+- [ ] 14.5 真机验收：见 .local/handoff/voice-mic-select.md。
+
+## 15. 暂停只关麦、通话中跟随系统默认输入（每项先红→绿）
+
+- [x] 15.1 暂停改为「用户说话不再当输入」：红：test/voice-runtime-pause.test.js（暂停不停播/不取消 TTS/不推进 epoch、暂停中 converse 的 text 照常播并在播完后超时返回 `timeout`+`paused`、暂停中说话无打断/无 user/无 partial/无 caption/无 voice:vad、全零帧静音期间照常触发 mic-restart、speaking/paused 相位切换、thinking 时暂停显示 paused 且恢复还原）、test/voice-renderer-mic.test.js（静音不释放 track、帧照常上行、barge-in 解除、静音中 track 死亡仍重建）；绿：voice-runtime `wanted`/`show`、setPaused 不再 interrupt、speak 不再丢弃；voice-session-bridge 去掉丢弃分支；voice-renderer 去掉 setMicPaused。取代 10.5/11.4/13.3 中的「立即停播、丢弃 text、真关麦」。
+- [x] 15.1b 语音口令：红：test/voice-runtime-mute-cmd.test.js（「静音」及变体触发、长句不触发、静音中别的话丢弃且无 user、「恢复语音」恢复并保留 650ms 屏蔽、快捷键↔口令互相恢复、播报回声不触发、日志无原文、CLI 脑同样适用）；绿：src/voice-commands.js、voice-runtime submitUtterance、voice-utterances `sttFor`（静音只用本地 STT）。顺带拆出 voice-runtime-providers.js、voice-cue-mask.js 使 voice-runtime.js 不超 300 行。
+- [x] 15.2 通话中跟随系统默认输入：红/绿：test/voice-mic-follow.test.js（默认变了切、指定设备不切、暂停不切、1s 防抖、失声设备不回跳、未通话无动作）；src/voice-mic-device.js `createMicFollow`、voice-renderer `handleDeviceChange`、voice-renderer-boot 监听 `devicechange`。
+- [ ] 15.3 真机验收：通话中连 AirPods 能跟过去；暂停时 Claude 的播报继续念完且橙点熄灭。
+
+## 16. AirPods 柄静音（随包 Swift 助手，每项先红→绿；helper 不录音的版本，已被第 17 节取代）
+
+- [x] 16.1 主进程模块：红：test/voice-mute-helper.test.js（fake spawn/流：mute/unmute 驱动共用 paused、快捷键/口令改变后写 `{"set":x}`、helper 回报状态不回写不回环、非 darwin/macOS<14/缺二进制不 spawn、通话结束 kill、崩溃同一通话最多重启 1 次、voice-main 接线）；绿：src/voice-mute-helper.js（日志 `airpods_mute`/`mute_helper_spawn`/`mute_helper_exit`）、voice-main `onStateChange` 接线、main.js `muteHelperPath`。
+- [x] 16.2 助手与构建：native/airpods-mute/clawd-mute-helper.swift（setInputMuteStateChangeHandler、stdin `{"set"}`、stdin 关闭即退出，不开麦）；scripts/build-mute-helper.js（darwin 才编、`-target <arch>-apple-macos14.0`、arm64+x86_64 lipo、无 swiftc 仅警告）作为 electron-builder `beforePack`；`build.mac.extraResources` -> `Contents/Resources/bin/`；`.gitignore` 加 build/bin/。
+- [ ] 16.3 真机：装好后开语音，按 AirPods 柄 3 次，voice-debug.log 应有 `mute_helper_spawn`、`airpods_mute`（source=airpods，mute 依次 true/false/true），静音时听到 end 提示音、取消时 start 提示音（见 .local/handoff/airpods-mute-impl.md）。
+
+## 17. 由 helper 自己录音，按柄才收得到事件（取代 16 的「不开麦」，每项先红→绿）
+
+- [x] 17.1 帧协议：红：test/voice-frame-protocol.test.js（单帧、拆包于头/载荷/逐字节、粘包加残包、魔数错报告并丢弃、空帧跳过）；绿：src/voice-frame-protocol.js。
+- [x] 17.2 helper 管理：红：test/voice-capture-helper.test.js（带 `--device` spawn、stdout 帧→PCM、stderr 状态日志 `helper_capture_started`、按柄 mute/unmute 驱动 paused、ready 前的 mute 忽略、防回环、set 同步、崩溃重启 ≤3 次后 `capture_fallback_renderer`、静音重启共用预算、协议错误重启、spawn 抛错立即回退）；绿：src/voice-capture-helper.js（取代 voice-mute-helper.js）。
+- [x] 17.3 来源选择：红：test/voice-runtime-capture.test.js（开关开/关选对来源、无主进程 VAD 用 renderer、helper PCM 进 VAD 且忽略 renderer PCM、静音时 PCM 仍进唤醒词识别但不产生 user、全零请求 helper 重启而不是 renderer、第 4 次请求、通话中切换、失败后锁定 renderer 且下次通话重置）；绿：src/voice-capture-source.js、voice-runtime（`refreshCapture`/`captureFailed`/`handleAudio(buf, from)`）。
+- [x] 17.4 主进程接线：红：test/voice-main-capture.test.js（开关开/关、macOS13 不 spawn、PCM 进 VAD、按柄静音、静音时 helper 不停、连崩回退并通话不断、全零重启、通话中切开关、通话中换麦按 label 通知 helper）；绿：voice-main 接线、`voice:capture` IPC/preload/boot。
+- [x] 17.5 renderer：红：test/voice-renderer-capture.test.js（helper 模式不 getUserMedia 且麦克风被拒也不报错、播放与远程 VAD 打断照常、设备变化不开浏览器麦、`handleCapture` 双向切换、重开被拒报错、同来源空操作）；绿：voice-renderer `openCapture`/`handleCapture`。
+- [x] 17.6 设置：红：test/voice-airpods-setting.test.js（默认 true、布尔校验、设置页开关、7 语言文案）；绿：voice-settings、settings-tab-voice、settings-i18n。
+- [x] 17.7 Swift helper 与构建：AVAudioEngine + 回声消除 + 重采样 + 设备匹配与跟随；`--list-devices` 调试开关；打包验证见 .local/handoff/airpods-helper-capture.md。
+- [ ] 17.8 真机验收：外放回声、收音、打断、三种静音、交叉开关、关闭后回旧路径（清单见 .local/handoff/airpods-helper-capture.md）。

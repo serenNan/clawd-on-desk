@@ -18,7 +18,7 @@ const TTS_PROVIDERS = Object.freeze([
 // required; failures fall back to loopback Kokoro). Aliyun providers also need a key.
 const DEFAULT_VOICE = Object.freeze({
   enabled: false,
-  brain: "claude-code",
+  brain: "session",
   stt: "sherpa-onnx",
   tts: "edge",
   cloudConsent: false,
@@ -30,13 +30,18 @@ const DEFAULT_VOICE = Object.freeze({
   ttsSpeed: 1.2,
   localFallback: false,
   cueEnabled: true,
+  captions: true,
+  airpodsMuteCapture: true,
+  summarizeOver: 120,
   claudePath: "",
+  micDeviceId: "",
+  micLabel: "",
 });
 
 const ENUMS = { brain: BRAINS, stt: STT_PROVIDERS, tts: TTS_PROVIDERS };
-const BOOLEANS = ["enabled", "cloudConsent", "localFallback", "cueEnabled"];
-const STRINGS = { edgeVoice: 64, ttsVoice: 64, ttsVoiceId: 128, localTtsVoice: 64, claudePath: 512 };
-const NUMBERS = { ttsSpeed: [0.5, 2], endSilenceMs: [400, 1500] };
+const BOOLEANS = ["enabled", "cloudConsent", "localFallback", "cueEnabled", "captions", "airpodsMuteCapture"];
+const STRINGS = { edgeVoice: 64, ttsVoice: 64, ttsVoiceId: 128, localTtsVoice: 64, claudePath: 512, micDeviceId: 256, micLabel: 128 };
+const NUMBERS = { ttsSpeed: [0.5, 2], endSilenceMs: [400, 1500], summarizeOver: [0, 2000] };
 const EDGE_VOICE_RE = /^[A-Za-z]{2,3}-[A-Za-z]{2,4}-[A-Za-z0-9]+Neural$/;
 
 const isPlainObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);

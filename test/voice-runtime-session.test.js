@@ -126,3 +126,18 @@ test("session events are logged without text", async () => {
   assert.ok(events.includes("converse_start") && events.includes("converse_done"));
   assert.equal(JSON.stringify(h.rec.logs).includes("绝密"), false);
 });
+
+test("long converse text is summarized through the injected summarizer, voice.summarizeOver gates it", async () => {
+  const { makeHarness } = require("./fixtures/voice-runtime-harness");
+  const sums = [];
+  const h = makeHarness({ voice: { summarizeOver: 10 }, runtimeOptions: { summarize: async (t) => { sums.push(t.length); return { text: "摘要一句。", summarized: true }; } } });
+  await h.runtime.start();
+  const p = h.runtime.converse({ text: "这是一段超过十个字的长回复内容，需要先压缩。", timeoutS: 30 });
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(h.rec.tts[0].texts, ["摘要一句。"]);
+  assert.equal(sums.length, 1);
+  h.runtime.stop("test");
+  const r = await p;
+  assert.equal(r.ended, true);
+  assert.equal(JSON.stringify(h.rec.logs).includes("超过十个字"), false);
+});

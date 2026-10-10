@@ -5,6 +5,7 @@
 // that lets a Claude Code session drive Clawd's voice ears/mouth over loopback HTTP.
 
 const http = require("http");
+const path = require("path");
 
 const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const DEFAULT_TIMEOUT_S = 120;
@@ -22,7 +23,7 @@ const TOOLS = [
   },
   {
     name: "voice_converse",
-    description: "把 text 用语音播给用户（可为空，只听不说），然后阻塞等待用户下一句话。返回 JSON：{interrupted:false,user} | {interrupted:true,played,unplayed_count,user} | {timeout:true} | {ended:true} | {superseded:true}。",
+    description: "把 text 用语音播给用户（可为空，只听不说），然后阻塞等待用户下一句话。返回 JSON：{interrupted:false,user} | {interrupted:true,played,unplayed_count,user} | {timeout:true} | {ended:true} | {superseded:true} | {ended:true,reason:taken_over}（语音已被其他会话接管：不要再调 voice_stop）。",
     inputSchema: {
       type: "object",
       properties: {
@@ -105,7 +106,16 @@ function validateArgs(name, args) {
   return null;
 }
 
-function createMcpServer({ callPet }) {
+// "project-dir·abc123": shown by the pet so the user knows which session drives the call.
+function sessionLabel(env = process.env, cwd = process.cwd()) {
+  const dir = path.basename(env.CLAUDE_PROJECT_DIR || cwd);
+  const id = String(env.CLAUDE_CODE_SESSION_ID || "");
+  const short = /^[0-9a-zA-Z-]{6,}$/.test(id) ? id.replace(/-/g, "").slice(0, 6) : "";
+  return dir && short ? `${dir}·${short}` : dir;
+}
+
+function createMcpServer({ callPet, env = process.env, cwd = process.cwd() }) {
+  let owner = null; // token from voice_start: only the newest session may drive the call
   const ok = (id, result) => ({ jsonrpc: "2.0", id, result });
   const inflight = new Map(); // request id -> AbortController (notifications/cancelled)
   const fail = (id, code, message) => ({ jsonrpc: "2.0", id, error: { code, message } });
@@ -119,9 +129,15 @@ function createMcpServer({ callPet }) {
     const timeoutMs = name === "voice_converse" ? (args.timeout_s || DEFAULT_TIMEOUT_S) * 1000 + TIMEOUT_GRACE_MS : undefined;
     try {
       const body = name === "voice_converse" ? { text: args.text || "", ...(args.timeout_s ? { timeout_s: args.timeout_s } : {}) } : {};
+      if (name !== "voice_start" && owner) body.owner = owner;
+      if (name === "voice_start") body.label = sessionLabel(env, cwd);
       const ac = new AbortController();
       inflight.set(id, ac);
       const res = await callPet(ROUTES[name], body, timeoutMs, ac.signal);
+      if (name === "voice_start" && res.json && typeof res.json.owner === "string") {
+        owner = res.json.owner;
+        delete res.json.owner;
+      }
       return ok(id, toolResult(res.json, res.status >= 400 || (res.json && res.json.status === "error")));
     } catch (e) {
       return ok(id, toolResult(`clawd-voice 调用失败：${(e && e.message) || e}`, true));
@@ -176,4 +192,4 @@ function runStdio() {
 
 if (require.main === module) runStdio();
 
-module.exports = { createMcpServer, createPetClient, TOOLS };
+module.exports = { createMcpServer, createPetClient, sessionLabel, TOOLS };

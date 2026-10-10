@@ -50,3 +50,30 @@ test("the same words are forwarded when nothing is being spoken", async () => {
   partialOf(h, "今天北京天气不错");
   assert.deepEqual(partials(h), ["今天北京天气不错"]);
 });
+
+// Background music with English lyrics gets transcribed; the user talks Chinese.
+test("a partial without Chinese characters is not forwarded to barge-in", async () => {
+  const h = makeHarness();
+  await speaking(h);
+  partialOf(h, "No just in time to see");
+  assert.deepEqual(partials(h), []);
+  assert.ok(h.rec.logs.some(([e]) => e === "non_chinese_ignored"));
+});
+
+test("a final without Chinese characters neither interrupts nor reaches the session", async () => {
+  const h = makeHarness();
+  await speaking(h);
+  const epoch = h.runtime.getState().epoch;
+  const s = partialOf(h, "You're lonely");
+  h.runtime.handleSpeechEnd({ reason: "silence" });
+  s.handlers.onFinal("You're lonely drone with a cock.");
+  assert.equal(h.runtime.getState().epoch, epoch);
+  assert.equal(h.rec.logs.some(([e]) => e === "session_final"), false);
+});
+
+test("mixed Chinese with English terms still counts as speech", async () => {
+  const h = makeHarness();
+  await speaking(h);
+  partialOf(h, "帮我打开 GitHub");
+  assert.deepEqual(partials(h), ["帮我打开 GitHub"]);
+});

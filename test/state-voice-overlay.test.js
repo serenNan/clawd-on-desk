@@ -29,12 +29,13 @@ describe("voice overlay display state", () => {
   it("shows listening/speaking/thinking and restores the live state when cleared", () => {
     api.setVoiceOverlay("listening");
     assert.strictEqual(api.getCurrentState(), "listening");
-    assert.strictEqual(api.getCurrentSvg(), "clawd-idle-follow.svg");
+    assert.strictEqual(api.getCurrentSvg(), "clawd-headphones-groove.svg");
     api.setVoiceOverlay("speaking");
     assert.strictEqual(api.getCurrentState(), "speaking");
-    assert.strictEqual(api.getCurrentSvg(), "clawd-headphones-groove.svg");
-    api.setVoiceOverlay("thinking");
-    assert.strictEqual(api.getCurrentState(), "thinking");
+    assert.strictEqual(api.getCurrentSvg(), "clawd-working-thinking.svg");
+    api.setVoiceOverlay("voiceThinking");
+    assert.strictEqual(api.getCurrentState(), "voiceThinking");
+    assert.strictEqual(api.getCurrentSvg(), "clawd-idle-bubble.svg");
     api.setVoiceOverlay(null);
     assert.strictEqual(api.getCurrentState(), "idle");
   });
@@ -57,10 +58,24 @@ describe("voice overlay display state", () => {
     assert.notStrictEqual(api.getCurrentState(), "speaking");
   });
 
-  it("higher-priority coding states keep priority over the overlay", () => {
-    api.setVoiceOverlay("listening");
-    api.updateSession("s1", "juggling", "SubagentStart", { cwd: "/tmp", agentPid: process.pid, agentId: "cursor-agent", editor: "cursor" });
-    assert.strictEqual(api.resolveDisplayState(), "juggling");
+  const sess = { cwd: "/tmp", agentPid: process.pid, agentId: "cursor-agent", editor: "cursor" };
+
+  it("voice states stay visible while a coding session is working/juggling/carrying", () => {
+    for (const coding of ["working", "juggling", "carrying"]) {
+      for (const voice of ["listening", "speaking", "voiceThinking", "paused"]) {
+        const a = require("../src/state")(makeCtx("clawd"));
+        a.updateSession("s1", coding, "PreToolUse", sess);
+        a.setVoiceOverlay(voice);
+        assert.strictEqual(a.resolveDisplayState(), voice, `${voice} over ${coding}`);
+      }
+    }
+  });
+
+  it("errors and permission requests still outrank voice states", () => {
+    const { resolveDisplayStateFromSessions } = require("../src/state-priority");
+    const errored = new Map([["s1", { state: "error" }]]);
+    assert.strictEqual(resolveDisplayStateFromSessions(errored, { voiceState: "speaking" }), "error");
+    assert.strictEqual(resolveDisplayStateFromSessions(new Map(), { voiceState: "speaking", permissionLocked: true }), "notification");
   });
 
   it("ignores unknown overlay names", () => {
@@ -97,4 +112,17 @@ describe("paused voice overlay", () => {
       mock.timers.reset();
     });
   }
+});
+
+describe("voice thinking art is independent of coding thinking", () => {
+  it("clawd: coding thinking keeps its art, voice thinking uses idle-bubble; other themes fall back to thinking art", () => {
+    const api = require("../src/state")(makeCtx("clawd"));
+    assert.deepStrictEqual(makeCtx("clawd").theme.states.thinking, ["clawd-working-thinking.svg"]);
+    api.setVoiceOverlay("voiceThinking");
+    assert.strictEqual(api.getCurrentSvg(), "clawd-idle-bubble.svg");
+    const calico = makeCtx("calico");
+    const c = require("../src/state")(calico);
+    c.setVoiceOverlay("voiceThinking");
+    assert.ok(calico.theme.states.thinking.includes(c.getCurrentSvg()));
+  });
 });

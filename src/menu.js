@@ -495,6 +495,9 @@ module.exports = function initMenu(ctx) {
       label: st.active ? t("voiceMenuStop") : t("voiceMenuStart"),
       click: () => ctx.toggleVoice(),
     }];
+    if (st.active && st.ownerLabel) {
+      items.unshift({ label: t("voiceMenuDrivenBy").replace("{name}", st.ownerLabel), enabled: false });
+    }
     if (st.active && typeof ctx.toggleVoicePause === "function") {
       items.push({ label: st.paused ? t("voiceMenuResume") : t("voiceMenuPause"), click: () => ctx.toggleVoicePause() });
     }

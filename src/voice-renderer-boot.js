@@ -6,25 +6,8 @@
   const bridge = window.electronAPI && window.electronAPI.voice;
   if (!bridge || !window.ClawdVoiceRenderer) return;
 
-  const indicator = document.getElementById("voice-indicator");
-  let decayTimer = null;
-  const setLevel = (v) => document.body.style.setProperty("--voice-level", String(Math.min(1, Math.max(0, v))));
-  // Playback levels arrive per PCM chunk, so fall back to rest shortly after the last one.
-  const pulse = (level) => {
-    setLevel(level * 4);
-    clearTimeout(decayTimer);
-    if (level > 0) decayTimer = setTimeout(() => setLevel(0), 160);
-  };
-  // Always-visible mic badge: hidden (no call) / green (listening) / grey slashed (paused).
-  const setPausedBadge = (paused) => {
-    if (indicator) indicator.classList.toggle("paused", !!paused);
-    if (paused) pulse(0);
-  };
   const setActive = (on) => {
-    if (indicator) indicator.classList.toggle("active", !!on);
-    if (!on) setPausedBadge(false);
     document.body.classList.toggle("voice-active", !!on);
-    if (!on) pulse(0);
   };
 
   const makeContext = () => {
@@ -36,11 +19,12 @@
   const renderer = window.ClawdVoiceRenderer.createVoiceRenderer({
     api: bridge,
     getUserMedia: (c) => navigator.mediaDevices.getUserMedia(c),
+    enumerateDevices: () => navigator.mediaDevices.enumerateDevices(),
     createContext: makeContext,
     createWorkletNode: (ctx) => new AudioWorkletNode(ctx, "clawd-voice-capture"),
     workletUrl: "voice-capture-worklet.js",
     onNotice: () => {},
-    onLevel: (_source, rms) => pulse(rms),
+    onLevel: () => {},
   });
 
   bridge.onStart((info) => { setActive(true); renderer.start(info); });
@@ -51,5 +35,9 @@
   bridge.onPartial((info) => renderer.handlePartial(info));
   bridge.onVad((info) => renderer.handleVad(info));
   bridge.onMuted((info) => renderer.handleMuted(info));
-  bridge.onPaused((info) => { renderer.handlePaused(info); setPausedBadge(info && info.paused); });
+  bridge.onPaused((info) => renderer.handlePaused(info));
+  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener("devicechange", () => renderer.handleDeviceChange());
+  if (bridge.onCapture) bridge.onCapture((info) => renderer.handleCapture(info));
+  if (bridge.onMicSelect) bridge.onMicSelect((info) => renderer.handleMicSelect(info));
+  if (bridge.onMicRestart) bridge.onMicRestart((info) => renderer.handleMicRestart(info));
 })();

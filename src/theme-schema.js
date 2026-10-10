@@ -75,6 +75,7 @@ const VISUAL_FALLBACK_STATES = new Set([
   "roam",
   "listening",
   "speaking",
+  "voiceThinking",
   "paused",
 ]);
 const SAFE_THEME_ASSET_BASENAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/;
@@ -262,7 +263,7 @@ function validateTheme(cfg) {
     const entry = normalizedStates[stateKey];
     if (!entry.fallbackTo) continue;
     if (!VISUAL_FALLBACK_STATES.has(stateKey)) {
-      errors.push(`states.${stateKey}.fallbackTo is only allowed on error/attention/notification/sweeping/carrying/sleeping/roam/listening/speaking`);
+      errors.push(`states.${stateKey}.fallbackTo is only allowed on error/attention/notification/sweeping/carrying/sleeping/roam/listening/speaking/voiceThinking`);
       continue;
     }
     if (!Object.prototype.hasOwnProperty.call(normalizedStates, entry.fallbackTo)) {

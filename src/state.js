@@ -308,7 +308,7 @@ let pendingState = null;
 const pendingCompletionDebounces = new Map();
 let eyeResendTimer = null;
 let updateVisualState = null;
-// Runtime-only realtime-voice overlay ("listening" | "speaking" | "thinking" | "paused").
+// Runtime-only realtime-voice overlay ("listening" | "speaking" | "voiceThinking" | "paused").
 // Never stored in `sessions`, so HUD/session snapshots are untouched.
 let voiceOverlayState = null;
 let updateVisualKind = null;

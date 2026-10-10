@@ -86,8 +86,8 @@ test("cancel silences that request only; the socket stays", () => {
   assert.equal(s.instances[0].closed, false);
 });
 
-test("idle for 60s closes the socket; the next request reconnects", () => {
-  const s = setup();
+test("idle for idleMs closes the socket; the next request reconnects", () => {
+  const s = setup({ idleMs: 60_000, keepAliveMs: 0 });
   s.conn.submit("a", "A", s.route("a")); s.instances[0].open();
   s.instances[0].emit("message", Buffer.from(head("a", "turn.end")), false);
   s.advance(59_000);
@@ -106,13 +106,70 @@ test("an in-flight request keeps the connection from going idle", () => {
   assert.equal(s.instances[0].closed, false);
 });
 
-test("a dropped idle connection is re-warmed automatically (once)", () => {
+test("a dropped idle connection is re-warmed immediately, every time it was healthy", () => {
   const s = setup();
   s.conn.warm(); s.instances[0].open();
+  s.advance(40_000);
+  s.instances[0].drop();
+  assert.equal(s.instances.length, 2, "reconnect without waiting for the next sentence");
+  s.instances[1].open(); s.advance(40_000);
+  s.instances[1].drop();
+  assert.equal(s.instances.length, 3, "and again: no one-shot limit");
+  assert.ok(s.logs.some(([e, f]) => e === "edge_ws_drop" && f.wasOpen));
+});
+
+test("reconnect attempts that never open back off 1s/2s/4s and then give up", () => {
+  const s = setup();
+  s.conn.warm(); s.instances[0].open(); s.advance(40_000);
+  s.instances[0].drop();
+  s.instances[1].drop(); assert.equal(s.instances.length, 2); s.advance(1_000);
+  assert.equal(s.instances.length, 3);
+  s.instances[2].drop(); s.advance(1_999); assert.equal(s.instances.length, 3); s.advance(1);
+  assert.equal(s.instances.length, 4);
+  s.instances[3].drop(); s.advance(4_000);
+  assert.equal(s.instances.length, 5);
+  s.instances[4].drop(); s.advance(60_000);
+  assert.equal(s.instances.length, 5, "gave up; the next submit connects on demand");
+  s.conn.submit("a", "A", s.route("a"));
+  assert.equal(s.instances.length, 6);
+});
+
+test("a connection that dies right after opening counts as a failure, not a healthy drop", () => {
+  const s = setup();
+  s.conn.warm(); s.instances[0].open(); s.advance(40_000);
   s.instances[0].drop();
   assert.equal(s.instances.length, 2);
-  s.instances[1].drop(); // never opened: no reconnect storm
-  assert.equal(s.instances.length, 2);
+  s.instances[1].open(); s.instances[1].drop();
+  assert.equal(s.instances.length, 2, "quick drop: wait for backoff instead of looping");
+  s.advance(1_000);
+  assert.equal(s.instances.length, 3);
+});
+
+test("keepalive: an open socket is ws-pinged every 20s, also while idle, and stops on close", () => {
+  const s = setup();
+  s.conn.warm();
+  s.advance(5_000);
+  assert.equal(s.instances[0].pings || 0, 0, "no ping before the socket is open");
+  s.instances[0].open();
+  s.advance(19_999); assert.equal(s.instances[0].pings || 0, 0);
+  s.advance(1); assert.equal(s.instances[0].pings, 1);
+  s.advance(60_000); assert.equal(s.instances[0].pings, 4);
+  assert.equal(s.instances[0].closed, false, "pings keep the idle timer from closing a live session");
+  s.instances[0].drop();
+  const n = s.instances[0].pings;
+  s.advance(100_000);
+  assert.equal(s.instances[0].pings, n);
+  assert.deepEqual(s.instances[0].sent, ["CONFIG"], "ping is a ws control frame, no text frame");
+});
+
+test("keepalive survives a ping that throws and dispose stops it", () => {
+  const s = setup();
+  s.conn.warm(); s.instances[0].open();
+  s.instances[0].ping = () => { throw new Error("not open"); };
+  s.advance(20_000);
+  s.conn.dispose();
+  s.advance(60_000);
+  assert.equal(s.instances.length, 1);
 });
 
 test("a stale connection dropped before any audio retries once on a fresh socket", () => {
@@ -133,7 +190,8 @@ test("a drop after audio started is an error, not a replay", () => {
   s.instances[0].serverBinary(audio("a", 3));
   s.instances[0].drop();
   assert.deepEqual(s.events[1], ["a", "error", "tts_edge_network", "connection closed"]);
-  assert.equal(s.instances.length, 2, "only the idle re-warm, no replay of the request");
+  s.advance(1_000);
+  assert.equal(s.instances.length, 2, "only the background re-warm, no replay of the request");
   assert.deepEqual(s.instances[1].sent, []);
 });
 

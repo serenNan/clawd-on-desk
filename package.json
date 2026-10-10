@@ -88,6 +88,7 @@
   "build": {
     "appId": "com.clawd.on-desk",
     "productName": "Clawd on Desk",
+    "beforePack": "scripts/build-mute-helper.js",
     "afterPack": "scripts/after-pack-koffi.js",
     "protocols": [
       {
@@ -115,6 +116,12 @@
             "x64",
             "arm64"
           ]
+        }
+      ],
+      "extraResources": [
+        {
+          "from": "build/bin/clawd-mute-helper",
+          "to": "bin/clawd-mute-helper"
         }
       ],
       "category": "public.app-category.entertainment",

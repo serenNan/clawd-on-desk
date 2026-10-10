@@ -113,3 +113,83 @@ test("logs carry outcome and timing but never text", async () => {
   assert.ok(h.logs.some(([e, f]) => e === "converse_done" && f.outcome === "user" && typeof f.ms === "number"));
   assert.equal(dump.includes("机密"), false);
 });
+
+test("takeOver ends the pending converse with taken_over and drops queued finals", async () => {
+  const h = makeHarness();
+  h.bridge.onUserFinal("排队的话");
+  const p = h.bridge.converse({ text: "" });
+  assert.equal((await p).user, "排队的话");
+  const p2 = h.bridge.converse({ text: "你好" });
+  h.bridge.takeOver();
+  assert.deepEqual(await p2, { ended: true, reason: "taken_over" });
+  assert.equal(h.bridge.hasWaiter(), false);
+  assert.equal(h.live().length, 0, "timers cleared");
+  h.bridge.onUserFinal("旧的残留");
+  h.bridge.takeOver();
+  const p3 = h.bridge.converse({ text: "" });
+  h.live()[0].fn();
+  assert.deepEqual(await p3, { timeout: true }, "stale queued text did not leak to the new waiter");
+});
+
+// ---- long text is summarized before it is spoken ----
+function summarizingHarness({ over = 20, result = { text: "简短摘要。", summarized: true }, heard = [] } = {}) {
+  const h = makeHarness({ heard });
+  h.sums = [];
+  h.pending = null;
+  h.bridge = createSessionBridge({
+    speak: (text) => { h.speaks.push(text); return { turnId: 1, total: 1 }; },
+    heard: () => h.heard,
+    countSentences: () => 1,
+    setPhase: (p) => h.phases.push(p),
+    log: (e, f) => h.logs.push([e, f]),
+    setTimeout: (fn, ms) => { const t = { fn, ms, cleared: false }; h.timers.push(t); return t; },
+    clearTimeout: (t) => { if (t) t.cleared = true; },
+    summarizeOver: () => over,
+    summarize: (text) => { h.sums.push(text); return new Promise((resolve) => { h.pending = () => resolve(result); }); },
+  });
+  return h;
+}
+const LONG = "这是一段很长很长的文字，".repeat(10);
+
+test("text over the threshold is summarized first; the summary is spoken and reported as played", async () => {
+  const h = summarizingHarness();
+  const p = h.bridge.converse({ text: LONG });
+  assert.deepEqual(h.speaks, [], "nothing spoken while summarizing");
+  assert.equal(h.phases.at(-1), "thinking");
+  h.pending(); await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(h.speaks, ["简短摘要。"]);
+  h.bridge.onIdle();
+  h.bridge.onUserFinal("好的");
+  assert.deepEqual(await p, { interrupted: false, user: "好的", played: "简短摘要。", summarized: true });
+});
+
+test("short text, threshold 0, or fallback summaries behave as documented", async () => {
+  const short = summarizingHarness();
+  short.bridge.converse({ text: "短" });
+  assert.deepEqual(short.speaks, ["短"]);
+  assert.deepEqual(short.sums, []);
+  const off = summarizingHarness({ over: 0 });
+  off.bridge.converse({ text: LONG });
+  assert.deepEqual(off.speaks, [LONG]);
+  const fb = summarizingHarness({ result: { text: "前两句。", summarized: false } });
+  const p = fb.bridge.converse({ text: LONG });
+  fb.pending(); await Promise.resolve(); await Promise.resolve();
+  fb.bridge.onIdle(); fb.bridge.onUserFinal("嗯");
+  const r = await p;
+  assert.equal(r.summarized, true, "user only heard a shortened version either way");
+  assert.equal(r.played, "前两句。");
+});
+
+test("interrupted summary keeps the heard sentences in played; takeOver/dispose during summarizing ends cleanly", async () => {
+  const h = summarizingHarness({ heard: ["简短摘要。"] });
+  const p = h.bridge.converse({ text: LONG });
+  h.pending(); await Promise.resolve(); await Promise.resolve();
+  h.bridge.onInterrupt(); h.bridge.onIdle(); h.bridge.onUserFinal("等等");
+  assert.deepEqual(await p, { interrupted: true, played: "简短摘要。", unplayed_count: 0, user: "等等", summarized: true });
+  const g = summarizingHarness();
+  const q = g.bridge.converse({ text: LONG });
+  g.bridge.takeOver();
+  assert.deepEqual(await q, { ended: true, reason: "taken_over" });
+  g.pending(); await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(g.speaks, [], "late summary of a dead converse is never spoken");
+});

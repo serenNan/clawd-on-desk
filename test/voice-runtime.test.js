@@ -36,7 +36,7 @@ function makeHarness(overrides = {}) {
     reset() { log.brain.resets++; },
     dispose() { log.brain.disposes++; },
   };
-  let voice = { ...cloneDefaultVoice(), tts: "local-kokoro", enabled: true, ...(overrides.voice || {}) };
+  let voice = { ...cloneDefaultVoice(), brain: "claude-code", tts: "local-kokoro", enabled: true, ...(overrides.voice || {}) };
   const runtime = createVoiceRuntime({
     getVoice: () => voice,
     env: overrides.env || {},

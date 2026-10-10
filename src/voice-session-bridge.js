@@ -54,6 +54,10 @@ function createSessionBridge(host) {
       unplayed: result.unplayed_count === undefined ? null : result.unplayed_count,
     });
     if (phase) host.setPhase(phase);
+    // The user only heard the shortened version: say so, and report what was actually read.
+    if (w.summarized && !result.ended && !result.superseded && !result.aborted) {
+      result = { ...result, ...(result.played === undefined ? { played: w.summary } : {}), summarized: true };
+    }
     w.resolve(result);
   }
 
@@ -69,6 +73,11 @@ function createSessionBridge(host) {
     if (isEndPhrase(user)) return finish(w, { ended: true }, "ended");
     if (w.interrupted) return finish(w, { interrupted: true, ...played(w), user }, "interrupted");
     return finish(w, { interrupted: false, user }, "user");
+  }
+
+  function speakNow(w, text) {
+    w.speaking = true; // before speak(): an empty reply may go idle synchronously
+    w.turn = host.speak(text);
   }
 
   return {
@@ -98,9 +107,16 @@ function createSessionBridge(host) {
         }
         w.guard = setT(() => finish(w, { timeout: true }, "timeout"), timeoutMs + GUARD_GRACE_MS);
         if (clean) {
-          w.speaking = true; // before speak(): an empty reply may go idle synchronously
-          w.turn = host.speak(clean);
-          if (!w.turn) { w.speaking = false; armTimer(w); } // paused: text dropped, keep waiting
+          const over = host.summarizeOver ? host.summarizeOver() : 0;
+          if (host.summarize && over > 0 && clean.replace(/\s+/g, "").length > over) {
+            host.setPhase("thinking");
+            host.summarize(clean).then((r) => {
+              if (w.done) return; // taken over / stopped while summarizing
+              w.summarized = true;
+              w.summary = r.text;
+              speakNow(w, r.text);
+            });
+          } else speakNow(w, clean);
         } else {
           host.setPhase("listening");
           armTimer(w);
@@ -121,6 +137,11 @@ function createSessionBridge(host) {
     onIdle() {
       const w = waiter;
       if (w && w.speaking) { w.speaking = false; armTimer(w); }
+    },
+    // A newer session claimed the call: the old converse ends, queued finals are not its business.
+    takeOver() {
+      queue = [];
+      finish(waiter, { ended: true, reason: "taken_over" }, "taken_over", { phase: null });
     },
     dispose() {
       queue = [];
